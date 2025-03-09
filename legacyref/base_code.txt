@@ -1,0 +1,3400 @@
+<title>OZE Developer Manager - Gra strategiczna</title>
+<type>application/vnd.ant.react</type>
+undefined
+<content>import React, { useState, useEffect } from 'react';
+import { Map, Circle, Users, Wind, Sun, AlertTriangle, Banknote, BarChart3, Calendar, Clock, Info } from 'lucide-react';
+
+// Główny komponent aplikacji
+const App = () => {
+  // Stan gry
+  const [gameState, setGameState] = useState({
+    turn: 1,
+    day: 1,
+    player: {
+      name: 'Twój Developer',
+      cash: 100000000, // 100 mln PLN
+      reputation: 50, // 0-100
+      projects: [],
+      rtbPower: 0, // Moc projektów w statusie RtB w MW
+      totalPower: 0, // Całkowita moc wszystkich projektów w MW
+      staff: {
+        scouts: [], // Skauci szukający gruntów
+        developers: [], // Developerzy projektów
+        lawyers: [], // Prawnicy
+        envSpecialists: [], // Specjaliści ds. środowiska
+        lobbyists: [], // Lobbyści
+      },
+      illegals: {
+        hasIllegalDatabase: false,
+        corruptionNetwork: 0, // 0-100
+        intimidationPower: 0, // 0-100
+        forgeryExpertise: 0, // 0-100
+      }
+    },
+    regions: generateRegions(),
+    events: [],
+    competitors: generateCompetitors(),
+    currentScreen: 'map', // 'map', 'company', 'events' lub 'competitors'
+    selectedRegion: null,
+    selectedProject: null,
+    notification: null,
+    gameSpeed: 1, // 1-3, wpływa na szybkość gry
+  });
+
+  // Efekt cyklu gry - każde przejście tury
+  useEffect(() => {
+    if (gameState.day % 2 === 0) {
+      // Nowa tura co 2 dni
+      generateEvents();
+      updateProjects();
+      updateRegionalConditions();
+      updateCompetitors();
+      checkWinCondition();
+      payStaffSalaries();
+    }
+  }, [gameState.day]);
+
+  // Funkcja przejścia do następnego dnia
+  const nextDay = () => {
+    setGameState(prev => ({
+      ...prev,
+      day: prev.day + 1,
+      turn: prev.day % 2 === 1 ? prev.turn + 1 : prev.turn
+    }));
+  };
+
+  // Funkcja płacenia pensji pracownikom
+  const payStaffSalaries = () => {
+    setGameState(prev => {
+      // Obliczamy dzienne koszty personelu
+      const scoutsSalary = prev.player.staff.scouts.reduce((sum, staff) => sum + staff.salary, 0);
+      const developersSalary = prev.player.staff.developers.reduce((sum, staff) => sum + staff.salary, 0);
+      const lobbyistsSalary = prev.player.staff.lobbyists.reduce((sum, staff) => sum + staff.salary, 0);
+      
+      // Łączne dzienne koszty
+      const totalDailyCost = (scoutsSalary + developersSalary + lobbyistsSalary) / 30;
+      
+      return {
+        ...prev,
+        player: {
+          ...prev.player,
+          cash: prev.player.cash - totalDailyCost
+        }
+      };
+    });
+  };
+
+  // Funkcje zarządzania projektami
+  const startNewProject = (regionId) => {
+    // Sprawdzenie czy gracz ma skautów
+    if (gameState.player.staff.scouts.length === 0) {
+      setGameState(prev => ({
+        ...prev,
+        notification: {
+          text: 'Potrzebujesz zatrudnić przynajmniej jednego skauta, aby rozpocząć projekt!', 
+          type: 'error'
+        }
+      }));
+      return;
+    }
+    
+    // Sprawdzenie czy gracz ma developerów
+    if (gameState.player.staff.developers.length === 0) {
+      setGameState(prev => ({
+        ...prev,
+        notification: {
+          text: 'Potrzebujesz zatrudnić przynajmniej jednego developera, aby rozpocząć projekt!', 
+          type: 'error'
+        }
+      }));
+      return;
+    }
+    
+    const region = gameState.regions.find(r => r.id === regionId);
+    
+    // Koszt rozpoczęcia projektu - pozyskanie gruntu
+    const landCost = Math.floor((300000 + Math.random() * 200000) * region.landPriceMultiplier);
+    
+    // Sprawdzenie czy gracz ma wystarczająco środków
+    if (gameState.player.cash < landCost) {
+      setGameState(prev => ({
+        ...prev,
+        notification: {
+          text: `Nie masz wystarczających środków! Potrzebujesz ${landCost.toLocaleString()} PLN na pozyskanie gruntu.`, 
+          type: 'error'
+        }
+      }));
+      return;
+    }
+    
+    // Wybór optymalnego skauta i developera
+    const bestScout = [...gameState.player.staff.scouts].sort((a, b) => b.skill - a.skill)[0];
+    const bestDeveloper = [...gameState.player.staff.developers].sort((a, b) => b.skill - a.skill)[0];
+    
+    // Generowanie nowego projektu
+    const projectId = Date.now();
+    const projectSize = Math.floor(30 + Math.random() * 50); // 30-80 ha
+    const projectPower = Math.floor(projectSize * (1.2 + Math.random() * 0.8)); // 1.2-2 MW/ha
+    
+    const newProject = {
+      id: projectId,
+      name: `Projekt ${region.name.substring(0, 3)}${projectId.toString().slice(-4)}`,
+      region: regionId,
+      size: projectSize, // Wielkość w hektarach
+      power: projectPower, // Moc w MW
+      status: 'land_acquisition',
+      statusIndex: 0, // Indeks etapu
+      startedOn: gameState.turn,
+      assignedScout: bestScout.id,
+      assignedDeveloper: bestDeveloper.id,
+      landCost: landCost,
+      progress: 0, // Postęp w aktualnym etapie (0-100)
+      etapTime: { // Czas trwania każdego etapu w turach
+        land_acquisition: 5 + Math.floor(Math.random() * 5), // 5-9 tur
+        environmental_decision: 10 + Math.floor(Math.random() * 8), // 10-17 tur
+        zoning_conditions: 8 + Math.floor(Math.random() * 6), // 8-13 tur
+        grid_connection: 12 + Math.floor(Math.random() * 10), // 12-21 tur
+        construction: 15 + Math.floor(Math.random() * 10) // 15-24 tur
+      },
+      etapCosts: { // Koszt każdego etapu
+        land_acquisition: landCost,
+        environmental_decision: Math.floor(80000 + Math.random() * 70000), // 80-150 tys zł
+        zoning_conditions: Math.floor(120000 + Math.random() * 80000), // 120-200 tys zł
+        grid_connection: Math.floor(projectPower * 30000), // 30 tys zł/kW
+        construction: Math.floor(projectPower * 3000000) // 3 mln zł/MW
+      },
+      etapPaid: { // Czy koszt etapu został już opłacony
+        land_acquisition: true, // Płacimy od razu przy starcie projektu
+        environmental_decision: false,
+        zoning_conditions: false,
+        grid_connection: false,
+        construction: false
+      },
+      risks: {
+        protest: calculateProtestRisk(region, gameState.player),
+        corruption: calculateCorruptionRisk(region, gameState.player),
+        delay: calculateDelayRisk(region, gameState.player)
+      },
+      events: [], // Historia zdarzeń projektu
+      totalCost: landCost, // Całkowity koszt projektu
+      estimatedProfit: calculateEstimatedProfit(projectPower, region) // Szacowany zysk
+    };
+    
+    // Aktualizujemy stan gry
+    setGameState(prev => {
+      // Aktualizujemy listę projektów gracza
+      const updatedPlayerProjects = [...prev.player.projects, newProject];
+      
+      // Aktualizujemy region
+      const updatedRegions = prev.regions.map(r => {
+        if (r.id === regionId) {
+          return {
+            ...r,
+            projects: [...r.projects, newProject],
+            availableLand: Math.max(0, r.availableLand - projectSize) // Zmniejszamy dostępny obszar gruntu
+          };
+        }
+        return r;
+      });
+      
+      return {
+        ...prev,
+        player: {
+          ...prev.player,
+          cash: prev.player.cash - newProject.landCost,
+          projects: updatedPlayerProjects
+        },
+        regions: updatedRegions,
+        notification: {
+          text: `Rozpoczęto nowy projekt: ${newProject.name} (${newProject.power} MW)`, 
+          type: 'success'
+        }
+      };
+    });
+  };
+
+  const advanceProject = (projectId) => {
+    setGameState(prev => {
+      // Znajdujemy projekt
+      const projectIndex = prev.player.projects.findIndex(p => p.id === projectId);
+      if (projectIndex === -1) return prev;
+      
+      const project = prev.player.projects[projectIndex];
+      
+      // Etapy projektu
+      const stages = ['land_acquisition', 'environmental_decision', 'zoning_conditions', 'grid_connection', 'construction', 'ready_to_build'];
+      
+      // Jeśli projekt jest już gotowy, nie robimy nic
+      if (project.status === 'ready_to_build') return prev;
+      
+      // Znajdujemy indeks aktualnego etapu
+      const currentStageIndex = stages.indexOf(project.status);
+      
+      // Następny etap
+      const nextStage = stages[currentStageIndex + 1];
+      
+      // Koszt przejścia do kolejnego etapu
+      const stageCost = project.etapCosts[nextStage] || 0;
+      
+      // Sprawdzamy czy gracz ma wystarczające środki
+      if (prev.player.cash < stageCost) {
+        return {
+          ...prev,
+          notification: {
+            text: `Nie masz wystarczających środków! Potrzebujesz ${stageCost.toLocaleString()} PLN na rozpoczęcie etapu ${translateStage(nextStage)}.`, 
+            type: 'error'
+          }
+        };
+      }
+      
+      // Aktualizujemy projekt
+      const updatedProjects = [...prev.player.projects];
+      updatedProjects[projectIndex] = {
+        ...project,
+        status: nextStage,
+        statusIndex: currentStageIndex + 1,
+        progress: 0,
+        etapPaid: {
+          ...project.etapPaid,
+          [nextStage]: true
+        },
+        totalCost: project.totalCost + stageCost,
+        events: [...project.events, {
+          turn: prev.turn,
+          text: `Rozpoczęto etap: ${translateStage(nextStage)}`
+        }]
+      };
+      
+      // Jeśli projekt osiągnął status RTB, aktualizujemy moc RTB gracza
+      let rtbPower = prev.player.rtbPower;
+      if (nextStage === 'ready_to_build') {
+        rtbPower += project.power;
+      }
+      
+      // Aktualizujemy stan gry
+      return {
+        ...prev,
+        player: {
+          ...prev.player,
+          cash: prev.player.cash - stageCost,
+          projects: updatedProjects,
+          rtbPower: rtbPower
+        },
+        notification: {
+          text: `Projekt ${project.name} przeszedł do etapu ${translateStage(nextStage)}!`, 
+          type: 'success'
+        }
+      };
+    });
+  };
+
+  // Funkcje zatrudniania personelu
+  const hireStaff = (staffType, level = 'junior') => {
+    // Parametry dla różnych poziomów umiejętności
+    const skillLevels = {
+      junior: { minSkill: 1, maxSkill: 3, salaryMultiplier: 1 },
+      mid: { minSkill: 4, maxSkill: 7, salaryMultiplier: 1.5 },
+      senior: { minSkill: 8, maxSkill: 10, salaryMultiplier: 2.2 }
+    };
+    
+    // Bazowe wynagrodzenie dla różnych typów pracowników
+    const baseSalaries = {
+      scout: 2500, // 2.5k zł
+      developer: 3000, // 3k zł
+      lawyer: 0, // Jednorazowa opłata
+      envSpecialist: 0, // Jednorazowa opłata
+      lobbyist: 5000 // 5k zł
+    };
+    
+    // Koszt jednorazowego wynajęcia specjalistów
+    const specialistCosts = {
+      lawyer: 30000000, // 30 mln zł
+      envSpecialist: 25000000 // 25 mln zł
+    };
+    
+    // Obliczamy wynagrodzenie i koszt zatrudnienia
+    const level_data = skillLevels[level];
+    const baseSalary = baseSalaries[staffType];
+    const monthlySalary = Math.floor(baseSalary * level_data.salaryMultiplier);
+    
+    // Dla prawników i specjalistów ds. środowiska jest to opłata jednorazowa
+    const hireCost = (staffType === 'lawyer' || staffType === 'envSpecialist') 
+      ? specialistCosts[staffType]
+      : monthlySalary * 2; // Koszt zatrudnienia = 2 miesiące wynagrodzenia
+    
+    // Sprawdzamy czy gracz ma wystarczające środki
+    if (gameState.player.cash < hireCost) {
+      setGameState(prev => ({
+        ...prev,
+        notification: {
+          text: `Nie masz wystarczających środków! Potrzebujesz ${hireCost.toLocaleString()} PLN.`, 
+          type: 'error'
+        }
+      }));
+      return;
+    }
+    
+    // Tworzymy nowego pracownika
+    const newStaffId = Date.now();
+    const skill = Math.floor(level_data.minSkill + Math.random() * (level_data.maxSkill - level_data.minSkill + 1));
+    
+    const newStaff = {
+      id: newStaffId,
+      type: staffType,
+      name: generateStaffName(), // Funkcja generująca imię i nazwisko
+      skill: skill, // 1-10 umiejętności
+      experience: 0, // Doświadczenie zdobywane z czasem
+      level: level,
+      salary: monthlySalary,
+      hiredOn: gameState.turn
+    };
+    
+    // Aktualizujemy stan gry
+    setGameState(prev => {
+      // Przygotowujemy zaktualizowaną listę pracowników
+      const updatedStaff = {...prev.player.staff};
+      
+      // Dodajemy nowego pracownika do odpowiedniej kategorii
+      switch(staffType) {
+        case 'scout':
+          updatedStaff.scouts = [...updatedStaff.scouts, newStaff];
+          break;
+        case 'developer':
+          updatedStaff.developers = [...updatedStaff.developers, newStaff];
+          break;
+        case 'lawyer':
+          updatedStaff.lawyers = [...updatedStaff.lawyers, newStaff];
+          break;
+        case 'envSpecialist':
+          updatedStaff.envSpecialists = [...updatedStaff.envSpecialists, newStaff];
+          break;
+        case 'lobbyist':
+          updatedStaff.lobbyists = [...updatedStaff.lobbyists, newStaff];
+          break;
+        default:
+          break;
+      }
+      
+      return {
+        ...prev,
+        player: {
+          ...prev.player,
+          cash: prev.player.cash - hireCost,
+          staff: updatedStaff
+        },
+        notification: {
+          text: `Zatrudniono ${translateStaffLevel(level)} ${translateStaffType(staffType, true)}: ${newStaff.name}`, 
+          type: 'success'
+        }
+      };
+    });
+  };
+
+  // Funkcje "szarej strefy"
+  const investInIllegalMethods = (method) => {
+    // Koszt inwestycji w nielegalne metody
+    const costs = {
+      database: 2000000, // 2 mln zł
+      corruption: 500000, // 500 tys. zł
+      intimidation: 400000, // 400 tys. zł
+      forgery: 600000 // 600 tys. zł
+    };
+    
+    // Sprawdzamy czy gracz ma wystarczające środki
+    if (gameState.player.cash < costs[method]) {
+      setGameState(prev => ({
+        ...prev,
+        notification: {
+          text: `Nie masz wystarczających środków! Potrzebujesz ${costs[method].toLocaleString()} PLN.`, 
+          type: 'error'
+        }
+      }));
+      return;
+    }
+    
+    // Skutki dla reputacji
+    const reputationImpact = {
+      database: -5,
+      corruption: -8,
+      intimidation: -10,
+      forgery: -15
+    };
+    
+    // Aktualizujemy stan gry
+    setGameState(prev => {
+      // Przygotowujemy aktualizację nielegalnych metod
+      let updatedIllegals = {...prev.player.illegals};
+      
+      if (method === 'database') {
+        updatedIllegals.hasIllegalDatabase = true;
+      } else {
+        // Zwiększamy poziom danej metody o 10-20 punktów
+        const increase = 10 + Math.floor(Math.random() * 11);
+        
+        if (method === 'corruption') {
+          updatedIllegals.corruptionNetwork = Math.min(100, updatedIllegals.corruptionNetwork + increase);
+        } else if (method === 'intimidation') {
+          updatedIllegals.intimidationPower = Math.min(100, updatedIllegals.intimidationPower + increase);
+        } else if (method === 'forgery') {
+          updatedIllegals.forgeryExpertise = Math.min(100, updatedIllegals.forgeryExpertise + increase);
+        }
+      }
+      
+      // Możliwe wykrycie nielegalnych działań
+      const detectionChance = Math.random() * 100;
+      if (detectionChance < 15) {
+        // Działania zostały wykryte - dodatkowa kara reputacji i finansowa
+        const fine = costs[method] * 1.5;
+        const additionalRepImpact = -10;
+        
+        return {
+          ...prev,
+          player: {
+            ...prev.player,
+            cash: Math.max(0, prev.player.cash - costs[method] - fine),
+            reputation: Math.max(0, prev.player.reputation + reputationImpact[method] + additionalRepImpact),
+            illegals: updatedIllegals
+          },
+          events: [...prev.events, {
+            id: Date.now(),
+            turn: prev.turn,
+            title: 'Nielegalne działania wykryte!',
+            description: `Twoje nielegalne działania związane z ${translateIllegalMethod(method, true)} zostały wykryte. Płacisz karę ${fine.toLocaleString()} PLN.`,
+            type: 'illegal_detection',
+            severity: 'high'
+          }],
+          notification: {
+            text: `Twoje nielegalne działania zostały wykryte! Płacisz karę ${fine.toLocaleString()} PLN i tracisz reputację!`, 
+            type: 'error'
+          }
+        };
+      }
+      
+      return {
+        ...prev,
+        player: {
+          ...prev.player,
+          cash: prev.player.cash - costs[method],
+          reputation: Math.max(0, prev.player.reputation + reputationImpact[method]),
+          illegals: updatedIllegals
+        },
+        notification: {
+          text: `Zainwestowano w ${translateIllegalMethod(method, true)}`, 
+          type: 'warning'
+        }
+      };
+    });
+  };
+
+  // Generowanie zdarzeń
+  const generateEvents = () => {
+    // Typy zdarzeń globalnych
+    const globalEventTypes = [
+      'law_change', 'energy_price_change', 'grid_issue', 'public_opinion'
+    ];
+    
+    // Typy zdarzeń lokalnych
+    const localEventTypes = [
+      'protest', 'local_authority', 'competitor_action', 'environmental_issue'
+    ];
+    
+    // Szansa na zdarzenie globalne: 30% na turę
+    if (Math.random() < 0.3) {
+      generateGlobalEvent(globalEventTypes[Math.floor(Math.random() * globalEventTypes.length)]);
+    }
+    
+    // Szansa na zdarzenie lokalne: 50% na turę
+    if (Math.random() < 0.5) {
+      generateLocalEvent(localEventTypes[Math.floor(Math.random() * localEventTypes.length)]);
+    }
+    
+    // Generowanie zdarzeń dla projektów
+    gameState.player.projects.forEach(project => {
+      if (project.status !== 'ready_to_build' && Math.random() < 0.2) {
+        generateProjectEvent(project);
+      }
+    });
+  };
+
+  const generateGlobalEvent = (eventType) => {
+    let newEvent = {
+      id: Date.now(),
+      turn: gameState.turn,
+      type: eventType,
+      title: '',
+      description: '',
+      effects: [],
+      severity: 'medium',
+      expires: gameState.turn + Math.floor(Math.random() * 10) + 5 // Wygasa po 5-14 turach
+    };
+    
+    switch(eventType) {
+      case 'law_change':
+        if (Math.random() > 0.5) {
+          newEvent.title = 'Korzystna zmiana prawa';
+          newEvent.description = 'Sejm uchwalił ustawę ułatwiającą rozwój projektów OZE.';
+          newEvent.effects.push({
+            type: 'project_speed',
+            value: 1.2 // +20% do szybkości projektów
+          });
+          newEvent.severity = 'positive';
+        } else {
+          newEvent.title = 'Niekorzystna zmiana prawa';
+          newEvent.description = 'Nowe przepisy komplikują proces uzyskiwania pozwoleń dla OZE.';
+          newEvent.effects.push({
+            type: 'project_speed',
+            value: 0.8 // -20% do szybkości projektów
+          });
+          newEvent.severity = 'negative';
+        }
+        break;
+      case 'energy_price_change':
+        if (Math.random() > 0.4) {
+          newEvent.title = 'Wzrost cen energii';
+          const increase = Math.floor(10 + Math.random() * 30); // 10-40%
+          newEvent.description = `Ceny energii wzrosły o ${increase}% na rynku krajowym.`;
+          newEvent.effects.push({
+            type: 'energy_price',
+            value: 1 + (increase / 100)
+          });
+          newEvent.severity = 'positive';
+        } else {
+          newEvent.title = 'Spadek cen energii';
+          const decrease = Math.floor(5 + Math.random() * 25); // 5-30%
+          newEvent.description = `Ceny energii spadły o ${decrease}% na rynku krajowym.`;
+          newEvent.effects.push({
+            type: 'energy_price',
+            value: 1 - (decrease / 100)
+          });
+          newEvent.severity = 'negative';
+        }
+        break;
+      case 'grid_issue':
+        newEvent.title = 'Problemy z siecią energetyczną';
+        newEvent.description = 'Operator Sieci Przesyłowej ogłasza tymczasowe ograniczenia w przyłączeniach.';
+        newEvent.effects.push({
+          type: 'grid_capacity',
+          value: 0.7 // -30% do dostępnych mocy przyłączeniowych
+        });
+        newEvent.severity = 'negative';
+        break;
+      case 'public_opinion':
+        if (Math.random() > 0.5) {
+          newEvent.title = 'Pozytywny trend dla OZE';
+          newEvent.description = 'Badania opinii publicznej pokazują wzrost poparcia dla odnawialnych źródeł energii.';
+          newEvent.effects.push({
+            type: 'social_acceptance',
+            value: 10 // +10 do akceptacji społecznej
+          });
+          newEvent.severity = 'positive';
+        } else {
+          newEvent.title = 'Negatywny trend dla OZE';
+          newEvent.description = 'Kampania dezinformacyjna przeciwko OZE wpływa na opinię publiczną.';
+          newEvent.effects.push({
+            type: 'social_acceptance',
+            value: -10 // -10 do akceptacji społecznej
+          });
+          newEvent.severity = 'negative';
+        }
+        break;
+      default:
+        break;
+    }
+    
+    // Dodajemy zdarzenie i stosujemy jego efekty
+    setGameState(prev => {
+      const updatedState = {
+        ...prev,
+        events: [...prev.events, newEvent],
+        notification: {
+          text: `Nowe zdarzenie globalne: ${newEvent.title}`, 
+          type: newEvent.severity === 'positive' ? 'success' : 'warning'
+        }
+      };
+      
+      // Stosujemy efekty zdarzenia
+      newEvent.effects.forEach(effect => {
+        switch(effect.type) {
+          case 'social_acceptance':
+            updatedState.regions = prev.regions.map(region => ({
+              ...region,
+              socialAcceptance: Math.min(100, Math.max(0, region.socialAcceptance + effect.value))
+            }));
+            break;
+          case 'grid_capacity':
+            updatedState.regions = prev.regions.map(region => ({
+              ...region,
+              gridCapacity: Math.max(0, Math.floor(region.gridCapacity * effect.value))
+            }));
+            break;
+          // Pozostałe efekty będą stosowane w innych funkcjach
+          default:
+            break;
+        }
+      });
+      
+      return updatedState;
+    });
+  };
+
+  const generateLocalEvent = (eventType) => {
+    // Wybieramy losowy region
+    const regionIds = gameState.regions.map(r => r.id);
+    const randomRegionId = regionIds[Math.floor(Math.random() * regionIds.length)];
+    const region = gameState.regions.find(r => r.id === randomRegionId);
+    
+    let newEvent = {
+      id: Date.now(),
+      turn: gameState.turn,
+      regionId: randomRegionId,
+      type: eventType,
+      title: '',
+      description: '',
+      effects: [],
+      severity: 'medium',
+      expires: gameState.turn + Math.floor(Math.random() * 8) + 3 // Wygasa po 3-10 turach
+    };
+    
+    switch(eventType) {
+      case 'protest':
+        newEvent.title = `Protest w województwie ${region.name}`;
+        newEvent.description = 'Lokalna społeczność organizuje protest przeciwko nowym inwestycjom OZE.';
+        newEvent.effects.push({
+          type: 'regional_social_acceptance',
+          value: -15 // -15 do akceptacji społecznej w regionie
+        });
+        newEvent.severity = 'negative';
+        break;
+      case 'local_authority':
+        if (Math.random() > 0.5) {
+          newEvent.title = `Wsparcie władz w województwie ${region.name}`;
+          newEvent.description = 'Władze lokalne ogłaszają program wsparcia dla inwestycji OZE.';
+          newEvent.effects.push({
+            type: 'regional_permit_speed',
+            value: 1.3 // +30% do szybkości uzyskiwania pozwoleń
+          });
+          newEvent.severity = 'positive';
+        } else {
+          newEvent.title = `Blokada administracyjna w województwie ${region.name}`;
+          newEvent.description = 'Władze lokalne wprowadzają dodatkowe wymogi dla inwestycji OZE.';
+          newEvent.effects.push({
+            type: 'regional_permit_speed',
+            value: 0.7 // -30% do szybkości uzyskiwania pozwoleń
+          });
+          newEvent.severity = 'negative';
+        }
+        break;
+      case 'competitor_action':
+        newEvent.title = `Działania konkurencji w województwie ${region.name}`;
+        newEvent.description = 'Konkurencyjna firma intensywnie skupuje grunty w regionie.';
+        newEvent.effects.push({
+          type: 'regional_land_availability',
+          value: 0.8 // -20% dostępnych gruntów
+        });
+        newEvent.effects.push({
+          type: 'regional_land_price',
+          value: 1.2 // +20% do cen gruntów
+        });
+        newEvent.severity = 'negative';
+        break;
+      case 'environmental_issue':
+        newEvent.title = `Problem środowiskowy w województwie ${region.name}`;
+        newEvent.description = 'Odkryto rzadki gatunek chroniony, co może utrudnić uzyskanie decyzji środowiskowych.';
+        newEvent.effects.push({
+          type: 'regional_environmental_complexity',
+          value: 1.5 // +50% do złożoności środowiskowej
+        });
+        newEvent.severity = 'negative';
+        break;
+      default:
+        break;
+    }
+    
+    // Dodajemy zdarzenie i stosujemy jego efekty
+    setGameState(prev => {
+      const updatedRegions = [...prev.regions];
+      const regionIndex = updatedRegions.findIndex(r => r.id === randomRegionId);
+      
+      if (regionIndex !== -1) {
+        // Stosujemy efekty zdarzenia dla konkretnego regionu
+        newEvent.effects.forEach(effect => {
+          switch(effect.type) {
+            case 'regional_social_acceptance':
+              updatedRegions[regionIndex] = {
+                ...updatedRegions[regionIndex],
+                socialAcceptance: Math.min(100, Math.max(0, updatedRegions[regionIndex].socialAcceptance + effect.value))
+              };
+              break;
+            case 'regional_land_availability':
+              updatedRegions[regionIndex] = {
+                ...updatedRegions[regionIndex],
+                availableLand: Math.max(0, Math.floor(updatedRegions[regionIndex].availableLand * effect.value))
+              };
+              break;
+            case 'regional_land_price':
+              updatedRegions[regionIndex] = {
+                ...updatedRegions[regionIndex],
+                landPriceMultiplier: updatedRegions[regionIndex].landPriceMultiplier * effect.value
+              };
+              break;
+            case 'regional_environmental_complexity':
+              updatedRegions[regionIndex] = {
+                ...updatedRegions[regionIndex],
+                environmentalComplexity: updatedRegions[regionIndex].environmentalComplexity * effect.value
+              };
+              break;
+            // Pozostałe efekty będą stosowane w innych funkcjach
+            default:
+              break;
+          }
+        });
+      }
+      
+      return {
+        ...prev,
+        regions: updatedRegions,
+        events: [...prev.events, newEvent],
+        notification: {
+          text: `Nowe zdarzenie lokalne: ${newEvent.title}`, 
+          type: newEvent.severity === 'positive' ? 'success' : 'warning'
+        }
+      };
+    });
+  };
+
+  const generateProjectEvent = (project) => {
+    // Typy zdarzeń projektowych
+    const projectEventTypes = [
+      'delay', 'cost_increase', 'technical_issue', 'favorable_condition'
+    ];
+    
+    const eventType = projectEventTypes[Math.floor(Math.random() * projectEventTypes.length)];
+    
+    let eventText = '';
+    let eventEffect = null;
+    
+    switch(eventType) {
+      case 'delay':
+        eventText = 'Opóźnienie w projekcie z powodu nieprzewidzianych trudności.';
+        eventEffect = { type: 'progress', value: -10 }; // -10% postępu
+        break;
+      case 'cost_increase':
+        eventText = 'Nieoczekiwany wzrost kosztów etapu.';
+        eventEffect = { type: 'cost', value: 1.1 }; // +10% kosztów
+        break;
+      case 'technical_issue':
+        eventText = 'Problem techniczny wymaga dodatkowych analiz.';
+        eventEffect = { type: 'progress', value: -5 }; // -5% postępu
+        break;
+      case 'favorable_condition':
+        eventText = 'Korzystne warunki przyspieszają postęp projektu.';
+        eventEffect = { type: 'progress', value: 15 }; // +15% postępu
+        break;
+      default:
+        break;
+    }
+    
+    // Dodajemy zdarzenie do projektu i stosujemy jego efekt
+    setGameState(prev => {
+      const updatedProjects = [...prev.player.projects];
+      const projectIndex = updatedProjects.findIndex(p => p.id === project.id);
+      
+      if (projectIndex !== -1) {
+        const projectEvent = {
+          turn: prev.turn,
+          text: eventText
+        };
+        
+        // Stosujemy efekt zdarzenia
+        if (eventEffect) {
+          switch(eventEffect.type) {
+            case 'progress':
+              updatedProjects[projectIndex] = {
+                ...updatedProjects[projectIndex],
+                progress: Math.max(0, Math.min(100, updatedProjects[projectIndex].progress + eventEffect.value)),
+                events: [...updatedProjects[projectIndex].events, projectEvent]
+              };
+              break;
+            case 'cost':
+              // Aktualizujemy koszt aktualnego etapu
+              const currentStage = updatedProjects[projectIndex].status;
+              const updatedCosts = {...updatedProjects[projectIndex].etapCosts};
+              
+              if (!updatedProjects[projectIndex].etapPaid[currentStage]) {
+                updatedCosts[currentStage] = Math.floor(updatedCosts[currentStage] * eventEffect.value);
+              }
+              
+              updatedProjects[projectIndex] = {
+                ...updatedProjects[projectIndex],
+                etapCosts: updatedCosts,
+                events: [...updatedProjects[projectIndex].events, projectEvent]
+              };
+              break;
+            default:
+              break;
+          }
+        }
+      }
+      
+      return {
+        ...prev,
+        player: {
+          ...prev.player,
+          projects: updatedProjects
+        }
+      };
+    });
+  };
+
+  // Aktualizacja projektów
+  const updateProjects = () => {
+    setGameState(prev => {
+      const updatedProjects = prev.player.projects.map(project => {
+        // Jeśli projekt jest już gotowy, nie aktualizujemy go
+        if (project.status === 'ready_to_build') return project;
+        
+        let updatedProject = {...project};
+        
+        // Znajdujemy przypisanego developera
+        const developer = prev.player.staff.developers.find(d => d.id === project.assignedDeveloper);
+        
+        // Bazowy postęp zależny od umiejętności developera
+        let progressIncrement = developer ? 1 + (developer.skill / 10) : 1;
+        
+        // Modyfikatory postępu w zależności od etapu
+        switch(project.status) {
+          case 'land_acquisition':
+            // Znajdujemy przypisanego skauta
+            const scout = prev.player.staff.scouts.find(s => s.id === project.assignedScout);
+            if (scout) {
+              progressIncrement += scout.skill / 10;
+            }
+            
+            // Nielegalna baza danych przyspiesza pozyskiwanie gruntów
+            if (prev.player.illegals.hasIllegalDatabase) {
+              progressIncrement *= 1.5;
+            }
+            break;
+          case 'environmental_decision':
+            // Specjaliści ds. środowiska przyspieszają decyzje środowiskowe
+            if (prev.player.staff.envSpecialists.length > 0) {
+              progressIncrement *= 1.3;
+            }
+            
+            // Wpływ korupcji na decyzje środowiskowe
+            if (prev.player.illegals.corruptionNetwork > 20) {
+              progressIncrement *= 1 + (prev.player.illegals.corruptionNetwork / 200);
+            }
+            break;
+          case 'zoning_conditions':
+            // Prawnicy przyspieszają uzyskiwanie warunków zabudowy
+            if (prev.player.staff.lawyers.length > 0) {
+              progressIncrement *= 1.3;
+            }
+            
+            // Wpływ korupcji i lobbystów
+            if (prev.player.staff.lobbyists.length > 0) {
+              progressIncrement *= 1.2;
+            }
+            
+            if (prev.player.illegals.corruptionNetwork > 30) {
+              progressIncrement *= 1 + (prev.player.illegals.corruptionNetwork / 300);
+            }
+            break;
+          case 'grid_connection':
+            // Inżynierowie przyspieszają przyłączenie do sieci
+            if (developer && developer.skill > 7) {
+              progressIncrement *= 1.2;
+            }
+            
+            // Wpływ korupcji
+            if (prev.player.illegals.corruptionNetwork > 40) {
+              progressIncrement *= 1 + (prev.player.illegals.corruptionNetwork / 400);
+            }
+            break;
+          case 'construction':
+            // Inżynierowie przyspieszają budowę
+            if (developer && developer.skill > 5) {
+              progressIncrement *= 1.1;
+            }
+            break;
+          default:
+            break;
+        }
+        
+        // Wpływ globalnych zdarzeń na prędkość projektów
+        const projectSpeedEvents = prev.events.filter(e => 
+          e.effects.some(effect => effect.type === 'project_speed') && 
+          e.expires > prev.turn
+        );
+        
+        projectSpeedEvents.forEach(event => {
+          const speedEffect = event.effects.find(effect => effect.type === 'project_speed');
+          if (speedEffect) {
+            progressIncrement *= speedEffect.value;
+          }
+        });
+        
+        // Wpływ regionalnych zdarzeń na prędkość pozwoleń
+        if (project.status === 'environmental_decision' || project.status === 'zoning_conditions') {
+          const permitSpeedEvents = prev.events.filter(e => 
+            e.regionId === project.region &&
+            e.effects.some(effect => effect.type === 'regional_permit_speed') && 
+            e.expires > prev.turn
+          );
+          
+          permitSpeedEvents.forEach(event => {
+            const permitEffect = event.effects.find(effect => effect.type === 'regional_permit_speed');
+            if (permitEffect) {
+              progressIncrement *= permitEffect.value;
+            }
+          });
+        }
+        
+        // Aktualizujemy postęp projektu
+        updatedProject.progress += progressIncrement;
+        
+        // Sprawdzamy czy projekt ukończył etap
+        if (updatedProject.progress >= 100) {
+          // Etap ukończony
+          updatedProject.progress = 100;
+          
+          // Dodajemy zdarzenie ukończenia etapu
+          updatedProject.events.push({
+            turn: prev.turn,
+            text: `Ukończono etap: ${translateStage(updatedProject.status)}`
+          });
+          
+          // Nie przechodzimy automatycznie do następnego etapu - gracz musi to zrobić ręcznie
+        }
+        
+        // Aktualizujemy rozwój pracowników przypisanych do projektu
+        if (developer) {
+          const developerIndex = prev.player.staff.developers.findIndex(d => d.id === developer.id);
+          if (developerIndex !== -1) {
+            const updatedDevelopers = [...prev.player.staff.developers];
+            updatedDevelopers[developerIndex] = {
+              ...updatedDevelopers[developerIndex],
+              experience: updatedDevelopers[developerIndex].experience + 1
+            };
+            
+            // Awans developera po zdobyciu wystarczającego doświadczenia
+            if (updatedDevelopers[developerIndex].experience >= 100 && updatedDevelopers[developerIndex].skill < 10) {
+              updatedDevelopers[developerIndex] = {
+                ...updatedDevelopers[developerIndex],
+                skill: updatedDevelopers[developerIndex].skill + 1,
+                experience: 0
+              };
+            }
+            
+            prev = {
+              ...prev,
+              player: {
+                ...prev.player,
+                staff: {
+                  ...prev.player.staff,
+                  developers: updatedDevelopers
+                }
+              }
+            };
+          }
+        }
+        
+        return updatedProject;
+      });
+      
+      return {
+        ...prev,
+        player: {
+          ...prev.player,
+          projects: updatedProjects
+        }
+      };
+    });
+  };
+
+  // Aktualizacja warunków regionalnych
+  const updateRegionalConditions = () => {
+    setGameState(prev => {
+      const updatedRegions = prev.regions.map(region => {
+        // Losowe fluktuacje warunków
+        const solarChange = Math.floor(Math.random() * 5) - 2; // -2 do +2
+        const windChange = Math.floor(Math.random() * 5) - 2; // -2 do +2
+        const socialChange = Math.floor(Math.random() * 3) - 1; // -1 do +1
+        
+        return {
+          ...region,
+          solarConditions: Math.min(100, Math.max(0, region.solarConditions + solarChange)),
+          windConditions: Math.min(100, Math.max(0, region.windConditions + windChange)),
+          socialAcceptance: Math.min(100, Math.max(0, region.socialAcceptance + socialChange)),
+        };
+      });
+      
+      return {
+        ...prev,
+        regions: updatedRegions
+      };
+    });
+  };
+
+  // Aktualizacja konkurencji
+  const updateCompetitors = () => {
+    setGameState(prev => {
+      const updatedCompetitors = prev.competitors.map(competitor => {
+        // Aktualizacja projektów konkurencji
+        const competitorPower = competitor.power + (Math.random() * 10 - 3); // -3 do +7 MW na turę
+        
+        return {
+          ...competitor,
+          power: Math.max(0, competitorPower)
+        };
+      });
+      
+      return {
+        ...prev,
+        competitors: updatedCompetitors
+      };
+    });
+  };
+
+  // Sprawdzenie warunku zwycięstwa
+  const checkWinCondition = () => {
+    // Główny cel: 100 GW mocy w projektach RTB
+    if (gameState.player.rtbPower >= 100000) { // 100 GW = 100,000 MW
+      setGameState(prev => ({
+        ...prev,
+        notification: {
+          text: 'Gratulacje! Osiągnąłeś cel 100 GW mocy w projektach Ready-to-Build!', 
+          type: 'win'
+        }
+      }));
+    }
+    
+    // Sprawdzenie czy gracz nie zbankrutował
+    if (gameState.player.cash <= 0) {
+      setGameState(prev => ({
+        ...prev,
+        notification: {
+          text: 'Zbankrutowałeś! Gra skończona.', 
+          type: 'error'
+        }
+      }));
+    }
+  };
+
+  // Funkcje pomocnicze
+  function generateRegions() {
+    return [
+      {
+        id: 'dolnoslaskie',
+        name: 'Dolnośląskie',
+        gridCapacity: 500, // MW
+        solarConditions: 70, // 0-100
+        windConditions: 60, // 0-100
+        socialAcceptance: 60, // 0-100
+        environmentalComplexity: 1.2, // Mnożnik złożoności środowiskowej
+        adminEfficiency: 0.9, // Mnożnik efektywności administracji
+        availableLand: 12000, // Dostępne grunty w ha
+        landPriceMultiplier: 1.1, // Mnożnik ceny gruntów
+        projects: [],
+        protests: [], // Aktywne protesty w regionie
+        dominantPlayer: null
+      },
+      {
+        id: 'kujawsko-pomorskie',
+        name: 'Kujawsko-Pomorskie',
+        gridCapacity: 400,
+        solarConditions: 65,
+        windConditions: 75,
+        socialAcceptance: 50,
+        environmentalComplexity: 1.0,
+        adminEfficiency: 1.0,
+        availableLand: 15000,
+        landPriceMultiplier: 0.9,
+        projects: [],
+        protests: [],
+        dominantPlayer: null
+      },
+      {
+        id: 'lubelskie',
+        name: 'Lubelskie',
+        gridCapacity: 350,
+        solarConditions: 75,
+        windConditions: 55,
+        socialAcceptance: 65,
+        environmentalComplexity: 1.1,
+        adminEfficiency: 0.8,
+        availableLand: 18000,
+        landPriceMultiplier: 0.8,
+        projects: [],
+        protests: [],
+        dominantPlayer: null
+      },
+      {
+        id: 'lubuskie',
+        name: 'Lubuskie',
+        gridCapacity: 300,
+        solarConditions: 68,
+        windConditions: 62,
+        socialAcceptance: 55,
+        environmentalComplexity: 1.3,
+        adminEfficiency: 0.9,
+        availableLand: 14000,
+        landPriceMultiplier: 0.85,
+        projects: [],
+        protests: [],
+        dominantPlayer: null
+      },
+      {
+        id: 'lodzkie',
+        name: 'Łódzkie',
+        gridCapacity: 450,
+        solarConditions: 72,
+        windConditions: 58,
+        socialAcceptance: 52,
+        environmentalComplexity: 0.9,
+        adminEfficiency: 1.1,
+        availableLand: 13000,
+        landPriceMultiplier: 1.05,
+        projects: [],
+        protests: [],
+        dominantPlayer: null
+      },
+      {
+        id: 'malopolskie',
+        name: 'Małopolskie',
+        gridCapacity: 380,
+        solarConditions: 65,
+        windConditions: 50,
+        socialAcceptance: 45,
+        environmentalComplexity: 1.4,
+        adminEfficiency: 0.8,
+        availableLand: 10000,
+        landPriceMultiplier: 1.3,
+        projects: [],
+        protests: [],
+        dominantPlayer: null
+      },
+      {
+        id: 'mazowieckie',
+        name: 'Mazowieckie',
+        gridCapacity: 600,
+        solarConditions: 70,
+        windConditions: 65,
+        socialAcceptance: 58,
+        environmentalComplexity: 1.0,
+        adminEfficiency: 1.2,
+        availableLand: 20000,
+        landPriceMultiplier: 1.2,
+        projects: [],
+        protests: [],
+        dominantPlayer: null
+      },
+      {
+        id: 'opolskie',
+        name: 'Opolskie',
+        gridCapacity: 250,
+        solarConditions: 68,
+        windConditions: 60,
+        socialAcceptance: 53,
+        environmentalComplexity: 1.1,
+        adminEfficiency: 0.9,
+        availableLand: 8000,
+        landPriceMultiplier: 0.95,
+        projects: [],
+        protests: [],
+        dominantPlayer: null
+      },
+      {
+        id: 'podkarpackie',
+        name: 'Podkarpackie',
+        gridCapacity: 320,
+        solarConditions: 72,
+        windConditions: 58,
+        socialAcceptance: 48,
+        environmentalComplexity: 1.3,
+        adminEfficiency: 0.85,
+        availableLand: 12000,
+        landPriceMultiplier: 0.9,
+        projects: [],
+        protests: [],
+        dominantPlayer: null
+      },
+      {
+        id: 'podlaskie',
+        name: 'Podlaskie',
+        gridCapacity: 280,
+        solarConditions: 68,
+        windConditions: 62,
+        socialAcceptance: 60,
+        environmentalComplexity: 1.4,
+        adminEfficiency: 0.8,
+        availableLand: 16000,
+        landPriceMultiplier: 0.8,
+        projects: [],
+        protests: [],
+        dominantPlayer: null
+      },
+      {
+        id: 'pomorskie',
+        name: 'Pomorskie',
+        gridCapacity: 420,
+        solarConditions: 62,
+        windConditions: 80,
+        socialAcceptance: 65,
+        environmentalComplexity: 1.2,
+        adminEfficiency: 1.0,
+        availableLand: 14000,
+        landPriceMultiplier: 1.1,
+        projects: [],
+        protests: [],
+        dominantPlayer: null
+      },
+      {
+        id: 'slaskie',
+        name: 'Śląskie',
+        gridCapacity: 550,
+        solarConditions: 68,
+        windConditions: 55,
+        socialAcceptance: 48,
+        environmentalComplexity: 1.1,
+        adminEfficiency: 1.1,
+        availableLand: 9000,
+        landPriceMultiplier: 1.2,
+        projects: [],
+        protests: [],
+        dominantPlayer: null
+      },
+      {
+        id: 'swietokrzyskie',
+        name: 'Świętokrzyskie',
+        gridCapacity: 270,
+        solarConditions: 70,
+        windConditions: 58,
+        socialAcceptance: 52,
+        environmentalComplexity: 1.2,
+        adminEfficiency: 0.9,
+        availableLand: 10000,
+        landPriceMultiplier: 0.85,
+        projects: [],
+        protests: [],
+        dominantPlayer: null
+      },
+      {
+        id: 'warminsko-mazurskie',
+        name: 'Warmińsko-Mazurskie',
+        gridCapacity: 330,
+        solarConditions: 62,
+        windConditions: 75,
+        socialAcceptance: 62,
+        environmentalComplexity: 1.5,
+        adminEfficiency: 0.8,
+        availableLand: 17000,
+        landPriceMultiplier: 0.8,
+        projects: [],
+        protests: [],
+        dominantPlayer: null
+      },
+      {
+        id: 'wielkopolskie',
+        name: 'Wielkopolskie',
+        gridCapacity: 480,
+        solarConditions: 68,
+        windConditions: 70,
+        socialAcceptance: 58,
+        environmentalComplexity: 1.0,
+        adminEfficiency: 1.1,
+        availableLand: 18000,
+        landPriceMultiplier: 1.0,
+        projects: [],
+        protests: [],
+        dominantPlayer: null
+      },
+      {
+        id: 'zachodniopomorskie',
+        name: 'Zachodniopomorskie',
+        gridCapacity: 380,
+        solarConditions: 60,
+        windConditions: 85,
+        socialAcceptance: 60,
+        environmentalComplexity: 1.3,
+        adminEfficiency: 1.0,
+        availableLand: 15000,
+        landPriceMultiplier: 0.9,
+        projects: [],
+        protests: [],
+        dominantPlayer: null
+      }
+    ];
+  }
+
+  function generateCompetitors() {
+    return [
+      {
+        id: 'competitor1',
+        name: 'GreenPower Polska',
+        power: 8000, // Początkowa moc w MW
+        rtbPower: 2000, // Początkowa moc RTB w MW
+        growth: 1.1, // Współczynnik wzrostu
+        strongRegions: ['mazowieckie', 'wielkopolskie', 'slaskie'],
+        strategy: 'aggressive', // Strategia działania
+        reputation: 70 // Reputacja 0-100
+      },
+      {
+        id: 'competitor2',
+        name: 'SolarTech',
+        power: 5000,
+        rtbPower: 1500,
+        growth: 1.2,
+        strongRegions: ['malopolskie', 'podkarpackie', 'lubelskie'],
+        strategy: 'balanced',
+        reputation: 65
+      },
+      {
+        id: 'competitor3',
+        name: 'WindForce',
+        power: 6000,
+        rtbPower: 1800,
+        growth: 1.15,
+        strongRegions: ['pomorskie', 'zachodniopomorskie', 'warminsko-mazurskie'],
+        strategy: 'conservative',
+        reputation: 80
+      }
+    ];
+  }
+
+  function calculateProtestRisk(region, player) {
+    // Bazowe ryzyko protestu zależne od akceptacji społecznej w regionie
+    let risk = 100 - region.socialAcceptance;
+    
+    // Wpływ reputacji gracza
+    risk -= player.reputation / 5;
+    
+    // Wpływ działań w szarej strefie
+    if (player.illegals.intimidationPower > 0) {
+      risk += player.illegals.intimidationPower / 3;
+    }
+    
+    // Ograniczamy do zakresu 5-95%
+    return Math.min(95, Math.max(5, risk));
+  }
+
+  function calculateCorruptionRisk(region, player) {
+    // Bazowe ryzyko wykrycia korupcji
+    let risk = 10;
+    
+    // Wpływ sieci korupcyjnej
+    if (player.illegals.corruptionNetwork > 0) {
+      risk += player.illegals.corruptionNetwork / 10;
+    }
+    
+    // Wpływ stosowania fałszowania dokumentów
+    if (player.illegals.forgeryExpertise > 0) {
+      risk += player.illegals.forgeryExpertise / 8;
+    }
+    
+    // Ograniczamy do zakresu 10-90%
+    return Math.min(90, Math.max(10, risk));
+  }
+
+  function calculateDelayRisk(region, player) {
+    // Bazowe ryzyko opóźnienia projektu
+    let risk = 25;
+    
+    // Wpływ złożoności środowiskowej regionu
+    risk += (region.environmentalComplexity - 1) * 20;
+    
+    // Wpływ efektywności administracji
+    risk -= (region.adminEfficiency - 1) * 30;
+    
+    // Wpływ posiadania specjalistów
+    if (player.staff.lawyers.length > 0) {
+      risk -= 10;
+    }
+    
+    if (player.staff.envSpecialists.length > 0) {
+      risk -= 10;
+    }
+    
+    // Ograniczamy do zakresu 5-95%
+    return Math.min(95, Math.max(5, risk));
+  }
+
+  function calculateEstimatedProfit(power, region) {
+    // Bazowy profit: 200-250 tys. zł / MW / rok
+    const baseProfit = (200000 + Math.random() * 50000) * power;
+    
+    // Modyfikator zależny od warunków w regionie (dla PV lub wiatru, bierzemy lepszy)
+    const conditionModifier = Math.max(region.solarConditions, region.windConditions) / 60;
+    
+    // Całkowity szacowany zysk roczny
+    return Math.floor(baseProfit * conditionModifier);
+  }
+
+  function generateStaffName() {
+    const firstNames = ['Adam', 'Anna', 'Piotr', 'Katarzyna', 'Michał', 'Magdalena', 'Jan', 'Aleksandra', 'Tomasz', 'Małgorzata', 'Marek', 'Barbara', 'Andrzej', 'Ewa', 'Krzysztof', 'Zofia', 'Paweł', 'Monika', 'Rafał', 'Joanna'];
+    const lastNames = ['Nowak', 'Kowalski', 'Wiśniewski', 'Wójcik', 'Kowalczyk', 'Kamiński', 'Lewandowski', 'Zieliński', 'Woźniak', 'Szymański', 'Dąbrowski', 'Kozłowski', 'Jankowski', 'Mazur', 'Kwiatkowski', 'Krawczyk', 'Piotrowski', 'Grabowski', 'Nowakowski', 'Pawłowski'];
+    
+    const firstName = firstNames[Math.floor(Math.random() * firstNames.length)];
+    const lastName = lastNames[Math.floor(Math.random() * lastNames.length)];
+    
+    return `${firstName} ${lastName}`;
+  }
+
+  function translateStage(stage) {
+    switch(stage) {
+      case 'land_acquisition': return 'Pozyskiwanie gruntów';
+      case 'environmental_decision': return 'Decyzja środowiskowa';
+      case 'zoning_conditions': return 'Warunki zabudowy';
+      case 'grid_connection': return 'Przyłączenie do sieci';
+      case 'construction': return 'Budowa';
+      case 'ready_to_build': return 'Gotowy do budowy';
+      default: return stage;
+    }
+  }
+
+  function translateStaffType(type, accusative = false) {
+    if (accusative) {
+      switch(type) {
+        case 'scout': return 'skauta';
+        case 'developer': return 'developera';
+        case 'lawyer': return 'prawnika';
+        case 'envSpecialist': return 'specjalistę ds. środowiska';
+        case 'lobbyist': return 'lobbystę';
+        default: return type;
+      }
+    } else {
+      switch(type) {
+        case 'scout': return 'skaut';
+        case 'developer': return 'developer';
+        case 'lawyer': return 'prawnik';
+        case 'envSpecialist': return 'specjalista ds. środowiska';
+        case 'lobbyist': return 'lobbysta';
+        default: return type;
+      }
+    }
+  }
+
+  function translateStaffLevel(level) {
+    switch(level) {
+      case 'junior': return 'początkującego';
+      case 'mid': return 'doświadczonego';
+      case 'senior': return 'eksperta';
+      default: return level;
+    }
+  }
+
+  function translateIllegalMethod(method, accusative = false) {
+    if (accusative) {
+      switch(method) {
+        case 'database': return 'nielegalną bazę danych';
+        case 'corruption': return 'siecią korupcyjną';
+        case 'intimidation': return 'metodami zastraszania';
+        case 'forgery': return 'fałszowaniem dokumentów';
+        default: return method;
+      }
+    } else {
+      switch(method) {
+        case 'database': return 'nielegalna baza danych';
+        case 'corruption': return 'sieć korupcyjna';
+        case 'intimidation': return 'metody zastraszania';
+        case 'forgery': return 'fałszowanie dokumentów';
+        default: return method;
+      }
+    }
+  }
+
+  return (
+    <div className="flex flex-col h-screen bg-gray-100">
+      {/* Nagłówek z informacjami o grze */}
+      <header className="bg-blue-700 text-white p-4 shadow-md">
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-bold">OZE Developer Manager</h1>
+          <div className="flex gap-4 items-center">
+            <div className="flex items-center gap-1">
+              <Calendar className="h-4 w-4" />
+              <span className="text-sm">Dzień: {gameState.day} | Tura: {gameState.turn}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Banknote className="h-4 w-4" />
+              <span className="text-sm">{gameState.player.cash.toLocaleString()} PLN</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Users className="h-4 w-4" />
+              <span className="text-sm">Reputacja: {gameState.player.reputation}/100</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Wind className="h-4 w-4" />
+              <span className="text-sm">Moc RTB: {gameState.player.rtbPower.toLocaleString()} MW</span>
+            </div>
+            <div className="flex gap-2 ml-4">
+              <button 
+                onClick={() => setGameState(prev => ({...prev, gameSpeed: 1}))}
+                className={`px-2 py-1 rounded ${gameState.gameSpeed === 1 ? 'bg-green-600' : 'bg-green-800'}`}
+              >
+                1x
+              </button>
+              <button 
+                onClick={() => setGameState(prev => ({...prev, gameSpeed: 2}))}
+                className={`px-2 py-1 rounded ${gameState.gameSpeed === 2 ? 'bg-green-600' : 'bg-green-800'}`}
+              >
+                2x
+              </button>
+              <button 
+                onClick={() => setGameState(prev => ({...prev, gameSpeed: 3}))}
+                className={`px-2 py-1 rounded ${gameState.gameSpeed === 3 ? 'bg-green-600' : 'bg-green-800'}`}
+              >
+                3x
+              </button>
+            </div>
+            <button 
+              onClick={nextDay} 
+              className="px-3 py-1 bg-green-500 rounded flex items-center gap-1"
+            >
+              <Clock className="h-4 w-4" />
+              Następny dzień
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Nawigacja między ekranami */}
+      <nav className="bg-blue-800 text-white p-2">
+        <div className="flex gap-4">
+          <button 
+            onClick={() => setGameState(prev => ({...prev, currentScreen: 'map'}))}
+            className={`flex items-center px-3 py-1 rounded ${gameState.currentScreen === 'map' ? 'bg-blue-600' : ''}`}
+          >
+            <Map className="mr-1 h-4 w-4" /> Mapa Polski
+          </button>
+          <button 
+            onClick={() => setGameState(prev => ({...prev, currentScreen: 'company'}))}
+            className={`flex items-center px-3 py-1 rounded ${gameState.currentScreen === 'company' ? 'bg-blue-600' : ''}`}
+          >
+            <Circle className="mr-1 h-4 w-4" /> Zarządzanie Spółką
+          </button>
+          <button 
+            onClick={() => setGameState(prev => ({...prev, currentScreen: 'events'}))}
+            className={`flex items-center px-3 py-1 rounded ${gameState.currentScreen === 'events' ? 'bg-blue-600' : ''}`}
+          >
+            <AlertTriangle className="mr-1 h-4 w-4" /> Wydarzenia
+          </button>
+          <button 
+            onClick={() => setGameState(prev => ({...prev, currentScreen: 'competitors'}))}
+            className={`flex items-center px-3 py-1 rounded ${gameState.currentScreen === 'competitors' ? 'bg-blue-600' : ''}`}
+          >
+            <BarChart3 className="mr-1 h-4 w-4" /> Konkurencja
+          </button>
+        </div>
+      </nav>
+
+      {/* Główny ekran gry */}
+      <main className="flex flex-1 overflow-hidden">
+        {gameState.currentScreen === 'map' && (
+          <MapView 
+            regions={gameState.regions} 
+            events={gameState.events}
+            selectedRegion={gameState.selectedRegion}
+            onSelectRegion={(id) => setGameState(prev => ({...prev, selectedRegion: id}))}
+            onStartProject={startNewProject}
+          />
+        )}
+        
+        {gameState.currentScreen === 'company' && (
+          <CompanyView 
+            player={gameState.player}
+            onHireStaff={hireStaff}
+            onInvestIllegal={investInIllegalMethods}
+            onAdvanceProject={advanceProject}
+            onSelectProject={(projectId) => setGameState(prev => ({...prev, selectedProject: projectId}))}
+            selectedProject={gameState.selectedProject}
+          />
+        )}
+        
+        {gameState.currentScreen === 'events' && (
+          <EventsView 
+            events={gameState.events}
+            turn={gameState.turn}
+          />
+        )}
+        
+        {gameState.currentScreen === 'competitors' && (
+          <CompetitorsView 
+            competitors={gameState.competitors}
+            playerPower={gameState.player.rtbPower}
+          />
+        )}
+      </main>
+
+      {/* Panel powiadomień */}
+      {gameState.notification && (
+        <div className={`fixed bottom-4 right-4 p-4 rounded shadow-lg ${
+          gameState.notification.type === 'win' ? 'bg-green-500 text-white' : 
+          gameState.notification.type === 'error' ? 'bg-red-500 text-white' :
+          gameState.notification.type === 'success' ? 'bg-green-500 text-white' :
+          gameState.notification.type === 'warning' ? 'bg-yellow-500 text-black' :
+          'bg-gray-500 text-white'
+        }`}>
+          {gameState.notification.text}
+          <button 
+            className="ml-4 px-2 py-1 rounded bg-opacity-20 bg-black"
+            onClick={() => setGameState(prev => ({...prev, notification: null}))}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Komponenty widoków
+const MapView = ({ regions, events, selectedRegion, onSelectRegion, onStartProject }) => {
+  // Filtrujemy aktywne zdarzenia lokalne
+  const activeLocalEvents = events.filter(e => 
+    e.regionId && e.expires > (new Date()).getTime()
+  );
+
+  return (
+    <div className="flex flex-1">
+      {/* Mapa */}
+      <div className="flex-1 bg-blue-50 p-4 flex items-center justify-center">
+        <div className="w-full h-full">
+          {/* Mapa Polski z województwami */}
+          <div className="w-full h-full grid grid-cols-4 grid-rows-4 gap-1">
+            {regions.map(region => {
+              // Sprawdzamy, czy są jakieś zdarzenia w tym regionie
+              const regionEvents = activeLocalEvents.filter(e => e.regionId === region.id);
+              const hasEvents = regionEvents.length > 0;
+              
+              // Określamy kolor regionu na podstawie warunków
+              const regionColor = getRegionColorClass(region);
+              
+              return (
+                <div 
+                  key={region.id}
+                  className={`
+                    relative
+                    flex items-center justify-center 
+                    border-2 ${selectedRegion === region.id ? 'border-blue-600' : 'border-gray-300'} 
+                    ${regionColor}
+                    rounded-lg
+                    cursor-pointer 
+                    transition-all duration-200
+                    hover:opacity-80
+                    p-2
+                  `}
+                  onClick={() => onSelectRegion(region.id)}
+                >
+                  {/* Nazwa regionu */}
+                  <div className="text-center z-10">
+                    <div className="font-bold text-sm">{region.name}</div>
+                    <div className="text-xs">
+                      {region.projects.length} projektów
+                    </div>
+                  </div>
+                  
+                  {/* Wskaźnik zdarzeń */}
+                  {hasEvents && (
+                    <div className="absolute top-1 right-1 h-3 w-3 bg-red-500 rounded-full animate-pulse"></div>
+                  )}
+                  
+                  {/* Wskaźniki warunków */}
+                  <div className="absolute bottom-1 left-1 flex gap-1">
+                    <div 
+                      className="h-2 w-2 rounded-full" 
+                      style={{backgroundColor: getColorByValue(region.solarConditions)}}
+                      title={`Nasłonecznienie: ${region.solarConditions}/100`}
+                    ></div>
+                    <div 
+                      className="h-2 w-2 rounded-full" 
+                      style={{backgroundColor: getColorByValue(region.windConditions)}}
+                      title={`Warunki wiatrowe: ${region.windConditions}/100`}
+                    ></div>
+                    <div 
+                      className="h-2 w-2 rounded-full" 
+                      style={{backgroundColor: getColorByValue(region.socialAcceptance)}}
+                      title={`Akceptacja społeczna: ${region.socialAcceptance}/100`}
+                    ></div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Panel informacyjny */}
+      <div className="w-1/3 bg-white p-4 overflow-y-auto">
+        {selectedRegion ? (
+          <RegionInfo 
+            region={regions.find(r => r.id === selectedRegion)} 
+            events={activeLocalEvents.filter(e => e.regionId === selectedRegion)}
+            onStartProject={() => onStartProject(selectedRegion)}
+          />
+        ) : (
+          <div>
+            <h2 className="text-xl font-bold mb-4">Mapa Polski</h2>
+            <p className="mb-4">Wybierz województwo, aby zobaczyć szczegółowe informacje i rozpocząć projekty.</p>
+            
+            <div className="bg-blue-50 p-4 rounded mb-4">
+              <h3 className="font-bold mb-2">Legenda mapy</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex items-center">
+                  <div className="w-4 h-4 bg-green-200 mr-2 border border-gray-300"></div>
+                  <span className="text-sm">Dobre warunki dla OZE</span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-4 h-4 bg-yellow-200 mr-2 border border-gray-300"></div>
+                  <span className="text-sm">Średnie warunki dla OZE</span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-4 h-4 bg-red-200 mr-2 border border-gray-300"></div>
+                  <span className="text-sm">Słabe warunki dla OZE</span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-4 h-4 relative mr-2 border border-gray-300">
+                    <div className="absolute top-0 right-0 h-2 w-2 bg-red-500 rounded-full"></div>
+                  </div>
+                  <span className="text-sm">Aktywne zdarzenia</span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-blue-50 p-4 rounded">
+              <h3 className="font-bold mb-2">Wskaźniki w regionach</h3>
+              <div className="grid gap-2">
+                <div className="flex items-center">
+                  <div className="w-3 h-3 rounded-full bg-green-500 mr-2"></div>
+                  <span className="text-sm">Wysokie nasłonecznienie</span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-3 h-3 rounded-full bg-blue-500 mr-2"></div>
+                  <span className="text-sm">Dobre warunki wiatrowe</span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-3 h-3 rounded-full bg-purple-500 mr-2"></div>
+                  <span className="text-sm">Wysoka akceptacja społeczna</span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-4">
+              <h3 className="font-bold mb-2">Aktywne wydarzenia na mapie</h3>
+              {activeLocalEvents.length > 0 ? (
+                <ul className="divide-y">
+                  {activeLocalEvents.slice(0, 3).map(event => (
+                    <li key={event.id} className="py-2">
+                      <div className="font-medium">{event.title}</div>
+                      <div className="text-sm text-gray-600">{event.description}</div>
+                    </li>
+                  ))}
+                  {activeLocalEvents.length > 3 && (
+                    <li className="py-2 text-sm text-gray-500">
+                      ...i {activeLocalEvents.length - 3} więcej wydarzeń
+                    </li>
+                  )}
+                </ul>
+              ) : (
+                <p className="text-gray-500">Brak aktywnych wydarzeń lokalnych</p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Komponent informacji o regionie
+const RegionInfo = ({ region, events, onStartProject }) => {
+  return (
+    <div>
+      <h2 className="text-xl font-bold mb-4">{region.name}</h2>
+      
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="bg-gray-100 p-3 rounded">
+          <div className="text-sm text-gray-500">Dostępne moce przyłączeniowe</div>
+          <div className="text-xl font-bold">{region.gridCapacity} MW</div>
+        </div>
+        <div className="bg-gray-100 p-3 rounded">
+          <div className="text-sm text-gray-500">Dostępne grunty</div>
+          <div className="text-xl font-bold">{region.availableLand.toLocaleString()} ha</div>
+        </div>
+        <div className="bg-gray-100 p-3 rounded">
+          <div className="text-sm text-gray-500">Nasłonecznienie</div>
+          <div className="flex items-center">
+            <div className="text-xl font-bold mr-2">{region.solarConditions}/100</div>
+            <div 
+              className="h-4 w-4 rounded-full" 
+              style={{backgroundColor: getColorByValue(region.solarConditions)}}
+            ></div>
+          </div>
+        </div>
+        <div className="bg-gray-100 p-3 rounded">
+          <div className="text-sm text-gray-500">Warunki wiatrowe</div>
+          <div className="flex items-center">
+            <div className="text-xl font-bold mr-2">{region.windConditions}/100</div>
+            <div 
+              className="h-4 w-4 rounded-full" 
+              style={{backgroundColor: getColorByValue(region.windConditions)}}
+            ></div>
+          </div>
+        </div>
+        <div className="bg-gray-100 p-3 rounded">
+          <div className="text-sm text-gray-500">Akceptacja społeczna</div>
+          <div className="flex items-center">
+            <div className="text-xl font-bold mr-2">{region.socialAcceptance}/100</div>
+            <div 
+              className="h-4 w-4 rounded-full" 
+              style={{backgroundColor: getColorByValue(region.socialAcceptance)}}
+            ></div>
+          </div>
+        </div>
+        <div className="bg-gray-100 p-3 rounded">
+          <div className="text-sm text-gray-500">Złożoność środowiskowa</div>
+          <div className="text-xl font-bold">
+            {region.environmentalComplexity.toFixed(1)}x
+            <span className="text-sm font-normal text-gray-500 ml-1">
+              {region.environmentalComplexity > 1 ? '(trudniejsza)' : '(łatwiejsza)'}
+            </span>
+          </div>
+        </div>
+      </div>
+      
+      {/* Aktywne wydarzenia w regionie */}
+      <div className="mb-4">
+        <h3 className="font-bold mb-2">Wydarzenia w regionie</h3>
+        {events && events.length > 0 ? (
+          <div className="space-y-2">
+            {events.map(event => (
+              <div key={event.id} className={`p-3 rounded text-sm ${
+                event.severity === 'positive' ? 'bg-green-100 text-green-800' :
+                event.severity === 'negative' ? 'bg-red-100 text-red-800' :
+                'bg-blue-100 text-blue-800'
+              }`}>
+                <div className="font-bold">{event.title}</div>
+                <div>{event.description}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-gray-500">Brak aktywnych wydarzeń w tym regionie</p>
+        )}
+      </div>
+      
+      {/* Projekty w regionie */}
+      <div className="mb-4">
+        <h3 className="font-bold mb-2">Projekty w regionie</h3>
+        {region.projects && region.projects.length > 0 ? (
+          <div className="max-h-40 overflow-y-auto">
+            <table className="min-w-full">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="text-left p-2 text-xs">Nazwa</th>
+                  <th className="text-center p-2 text-xs">Moc</th>
+                  <th className="text-center p-2 text-xs">Status</th>
+                  <th className="text-center p-2 text-xs">Postęp</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {region.projects.map(project => (
+                  <tr key={project.id} className="hover:bg-gray-50">
+                    <td className="p-2 text-xs">{project.name}</td>
+                    <td className="text-center p-2 text-xs">{project.power} MW</td>
+                    <td className="text-center p-2 text-xs">{translateStage(project.status)}</td>
+                    <td className="p-2">
+                      <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full ${getStatusColorClass(project.status)}`} 
+                          style={{width: `${project.progress}%`}}
+                        ></div>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-gray-500">Brak projektów w tym regionie</p>
+        )}
+      </div>
+      
+      <div className="flex flex-col gap-2">
+        <button 
+          onClick={onStartProject}
+          className="w-full py-2 bg-green-500 text-white rounded font-bold hover:bg-green-600 flex items-center justify-center"
+        >
+          <div className="mr-2">+</div>
+          Rozpocznij nowy projekt
+        </button>
+        
+        <div className="p-3 bg-blue-50 rounded text-sm">
+          <div className="font-bold flex items-center">
+            <Info className="h-4 w-4 mr-1" />
+            Informacje o kosztach:
+          </div>
+          <div>
+            <span className="font-medium">Koszt pozyskania gruntu:</span> ~{Math.floor(400000 * region.landPriceMultiplier).toLocaleString()} PLN/ha
+          </div>
+          <div>
+            <span className="font-medium">Szacowana rentowność:</span> {((Math.max(region.solarConditions, region.windConditions) / 60) * 100).toFixed(1)}% średniej
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Komponent zarządzania spółką
+const CompanyView = ({ player, onHireStaff, onInvestIllegal, onAdvanceProject, onSelectProject, selectedProject }) => {
+  // Stan dla zakładek w panelu zarządzania
+  const [activeTab, setActiveTab] = useState('staff');
+  
+  // Wybrany projekt
+  const selectedProjectData = player.projects.find(p => p.id === selectedProject);
+
+  return (
+    <div className="flex flex-1">
+      <div className="flex-1 p-4 overflow-y-auto">
+        <h2 className="text-xl font-bold mb-4">Zarządzanie Spółką</h2>
+        
+        {/* Zakładki */}
+        <div className="flex border-b border-gray-200 mb-4">
+          <button 
+            onClick={() => setActiveTab('staff')}
+            className={`py-2 px-4 font-medium ${
+              activeTab === 'staff' 
+                ? 'border-b-2 border-blue-500 text-blue-600' 
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Kadry
+          </button>
+          <button 
+            onClick={() => setActiveTab('projects')}
+            className={`py-2 px-4 font-medium ${
+              activeTab === 'projects' 
+                ? 'border-b-2 border-blue-500 text-blue-600' 
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Projekty
+          </button>
+          <button 
+            onClick={() => setActiveTab('finances')}
+            className={`py-2 px-4 font-medium ${
+              activeTab === 'finances' 
+                ? 'border-b-2 border-blue-500 text-blue-600' 
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Finanse
+          </button>
+        </div>
+        
+        {/* Panel kadr */}
+        {activeTab === 'staff' && (
+          <div className="space-y-4">
+            {/* Skauci */}
+            <div className="bg-white p-4 rounded shadow">
+              <h3 className="font-bold text-lg mb-3 flex items-center">
+                <Users className="h-5 w-5 mr-2" />
+                Skauci - pozyskiwanie gruntów
+              </h3>
+              
+              <div className="space-y-2 mb-3">
+                <p className="text-sm">Skauci szukają i negocjują umowy dzierżawy gruntów pod projekty OZE.</p>
+                
+                <div className="bg-blue-50 p-3 rounded text-sm">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <span className="font-medium">Początkujący:</span> 2,5 tys. zł/miesiąc
+                    </div>
+                    <div>
+                      <span className="font-medium">Doświadczony:</span> 3,75 tys. zł/miesiąc
+                    </div>
+                    <div>
+                      <span className="font-medium">Ekspert:</span> 5,5 tys. zł/miesiąc
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex flex-wrap gap-2 mb-3">
+                <button 
+                  onClick={() => onHireStaff('scout', 'junior')}
+                  className="px-3 py-1 bg-blue-100 text-blue-800 rounded hover:bg-blue-200"
+                >
+                  Zatrudnij początkującego
+                </button>
+                <button 
+                  onClick={() => onHireStaff('scout', 'mid')}
+                  className="px-3 py-1 bg-blue-200 text-blue-800 rounded hover:bg-blue-300"
+                >
+                  Zatrudnij doświadczonego
+                </button>
+                <button 
+                  onClick={() => onHireStaff('scout', 'senior')}
+                  className="px-3 py-1 bg-blue-300 text-blue-800 rounded hover:bg-blue-400"
+                >
+                  Zatrudnij eksperta
+                </button>
+              </div>
+              
+              {player.staff.scouts.length > 0 ? (
+                <div className="max-h-40 overflow-y-auto">
+                  <table className="min-w-full">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="text-left p-2 text-xs">Imię i nazwisko</th>
+                        <th className="text-center p-2 text-xs">Poziom</th>
+                        <th className="text-center p-2 text-xs">Umiejętności</th>
+                        <th className="text-center p-2 text-xs">Pensja</th>
+                        <th className="text-center p-2 text-xs">Doświadczenie</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {player.staff.scouts.map(staff => (
+                        <tr key={staff.id} className="hover:bg-gray-50">
+                          <td className="p-2 text-xs">{staff.name}</td>
+                          <td className="text-center p-2 text-xs">
+                            {staff.level === 'junior' ? 'Początkujący' : 
+                            staff.level === 'mid' ? 'Doświadczony' : 'Ekspert'}
+                          </td>
+                          <td className="text-center p-2 text-xs">{staff.skill}/10</td>
+                          <td className="text-center p-2 text-xs">{staff.salary.toLocaleString()} zł/m-c</td>
+                          <td className="p-2">
+                            <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-blue-500" 
+                                style={{width: `${staff.experience}%`}}
+                              ></div>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-500 text-sm italic">Nie masz jeszcze żadnych skautów</p>
+              )}
+            </div>
+            
+            {/* Developerzy */}
+            <div className="bg-white p-4 rounded shadow">
+              <h3 className="font-bold text-lg mb-3 flex items-center">
+                <Users className="h-5 w-5 mr-2" />
+                Developerzy OZE - zarządzanie projektami
+              </h3>
+              
+              <div className="space-y-2 mb-3">
+                <p className="text-sm">Developerzy zarządzają projektami i przyspieszają proces realizacji.</p>
+                
+                <div className="bg-blue-50 p-3 rounded text-sm">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <span className="font-medium">Początkujący:</span> 3 tys. zł/miesiąc
+                    </div>
+                    <div>
+                      <span className="font-medium">Doświadczony:</span> 4,5 tys. zł/miesiąc
+                    </div>
+                    <div>
+                      <span className="font-medium">Ekspert:</span> 6,6 tys. zł/miesiąc
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex flex-wrap gap-2 mb-3">
+                <button 
+                  onClick={() => onHireStaff('developer', 'junior')}
+                  className="px-3 py-1 bg-green-100 text-green-800 rounded hover:bg-green-200"
+                >
+                  Zatrudnij początkującego
+                </button>
+                <button 
+                  onClick={() => onHireStaff('developer', 'mid')}
+                  className="px-3 py-1 bg-green-200 text-green-800 rounded hover:bg-green-300"
+                >
+                  Zatrudnij doświadczonego
+                </button>
+                <button 
+                  onClick={() => onHireStaff('developer', 'senior')}
+                  className="px-3 py-1 bg-green-300 text-green-800 rounded hover:bg-green-400"
+                >
+                  Zatrudnij eksperta
+                </button>
+              </div>
+              
+              {player.staff.developers.length > 0 ? (
+                <div className="max-h-40 overflow-y-auto">
+                  <table className="min-w-full">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="text-left p-2 text-xs">Imię i nazwisko</th>
+                        <th className="text-center p-2 text-xs">Poziom</th>
+                        <th className="text-center p-2 text-xs">Umiejętności</th>
+                        <th className="text-center p-2 text-xs">Pensja</th>
+                        <th className="text-center p-2 text-xs">Doświadczenie</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {player.staff.developers.map(staff => (
+                        <tr key={staff.id} className="hover:bg-gray-50">
+                          <td className="p-2 text-xs">{staff.name}</td>
+                          <td className="text-center p-2 text-xs">
+                            {staff.level === 'junior' ? 'Początkujący' : 
+                            staff.level === 'mid' ? 'Doświadczony' : 'Ekspert'}
+                          </td>
+                          <td className="text-center p-2 text-xs">{staff.skill}/10</td>
+                          <td className="text-center p-2 text-xs">{staff.salary.toLocaleString()} zł/m-c</td>
+                          <td className="p-2">
+                            <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-green-500" 
+                                style={{width: `${staff.experience}%`}}
+                              ></div>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-500 text-sm italic">Nie masz jeszcze żadnych developerów</p>
+              )}
+            </div>
+            
+            {/* Eksperci */}
+            <div className="bg-white p-4 rounded shadow">
+              <h3 className="font-bold text-lg mb-3 flex items-center">
+                <Users className="h-5 w-5 mr-2" />
+                Specjaliści wysokiego szczebla
+              </h3>
+              
+              <div className="space-y-2 mb-3">
+                <p className="text-sm">Eksperci wysokiego szczebla to kluczowi specjaliści, którzy znacząco przyspieszają uzyskiwanie pozwoleń i rozwój projektów.</p>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4 mb-3">
+                <div className="border rounded p-3">
+                  <h4 className="font-medium mb-2">Prawnik</h4>
+                  <p className="text-sm mb-2">Przyspiesza uzyskiwanie warunków zabudowy i decyzji lokalizacyjnych o 30%.</p>
+                  <div className="flex justify-between items-center">
+                    <div className="text-sm font-medium">
+                      <span className="text-red-600">30 mln zł</span> (jednorazowo)
+                    </div>
+                    <button 
+                      onClick={() => onHireStaff('lawyer', 'senior')}
+                      className={`px-3 py-1 bg-purple-100 text-purple-800 rounded hover:bg-purple-200 ${
+                        player.staff.lawyers.length > 0 ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
+                      disabled={player.staff.lawyers.length > 0}
+                    >
+                      {player.staff.lawyers.length > 0 ? 'Zatrudniony' : 'Zatrudnij'}
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="border rounded p-3">
+                  <h4 className="font-medium mb-2">Specjalista ds. środowiska</h4>
+                  <p className="text-sm mb-2">Przyspiesza uzyskiwanie decyzji środowiskowych o 30% i zmniejsza ryzyko blokad.</p>
+                  <div className="flex justify-between items-center">
+                    <div className="text-sm font-medium">
+                      <span className="text-red-600">25 mln zł</span> (jednorazowo)
+                    </div>
+                    <button 
+                      onClick={() => onHireStaff('envSpecialist', 'senior')}
+                      className={`px-3 py-1 bg-purple-100 text-purple-800 rounded hover:bg-purple-200 ${
+                        player.staff.envSpecialists.length > 0 ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
+                      disabled={player.staff.envSpecialists.length > 0}
+                    >
+                      {player.staff.envSpecialists.length > 0 ? 'Zatrudniony' : 'Zatrudnij'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="border rounded p-3">
+                <h4 className="font-medium mb-2">Lobbyści</h4>
+                <p className="text-sm mb-2">Lobbyści wpływają na decyzje lokalne, przyspieszając procesy administracyjne i zwiększając akceptację społeczną.</p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <button 
+                    onClick={() => onHireStaff('lobbyist', 'junior')}
+                    className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200"
+                  >
+                    Zatrudnij początkującego (5 tys. zł/m-c)
+                  </button>
+                  <button 
+                    onClick={() => onHireStaff('lobbyist', 'senior')}
+                    className="px-3 py-1 bg-yellow-200 text-yellow-800 rounded hover:bg-yellow-300"
+                  >
+                    Zatrudnij eksperta (11 tys. zł/m-c)
+                  </button>
+                </div>
+                
+                {player.staff.lobbyists.length > 0 && (
+                  <div className="mt-3">
+                    <div className="text-sm font-medium">Zatrudnieni lobbyści: {player.staff.lobbyists.length}</div>
+                    <div className="text-xs text-gray-500">
+                      Miesięczny koszt: {player.staff.lobbyists.reduce((sum, l) => sum + l.salary, 0).toLocaleString()} zł
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Panel projektów */}
+        {activeTab === 'projects' && (
+          <div className="space-y-4">
+            {/* Podsumowanie projektów */}
+            <div className="grid grid-cols-4 gap-4">
+              <div className="bg-white p-3 rounded shadow">
+                <div className="text-sm text-gray-500">Wszystkie projekty</div>
+                <div className="text-xl font-bold">{player.projects.length}</div>
+              </div>
+              <div className="bg-white p-3 rounded shadow">
+                <div className="text-sm text-gray-500">Łączna moc</div>
+                <div className="text-xl font-bold">{player.totalPower.toLocaleString()} MW</div>
+              </div>
+              <div className="bg-white p-3 rounded shadow">
+                <div className="text-sm text-gray-500">Moc RTB</div>
+                <div className="text-xl font-bold">{player.rtbPower.toLocaleString()} MW</div>
+              </div>
+              <div className="bg-white p-3 rounded shadow">
+                <div className="text-sm text-gray-500">Cel gry</div>
+                <div className="text-xl font-bold">100,000 MW</div>
+                <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden mt-1">
+                  <div 
+                    className="h-full bg-green-500" 
+                    style={{width: `${Math.min(100, (player.rtbPower / 100000) * 100)}%`}}
+                  ></div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Lista projektów */}
+            <div className="bg-white p-4 rounded shadow">
+              <h3 className="font-bold text-lg mb-3">Twoje projekty</h3>
+              
+              {player.projects.length > 0 ? (
+                <div className="mb-4">
+                  <table className="min-w-full">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="text-left p-2">Nazwa</th>
+                        <th className="text-center p-2">Region</th>
+                        <th className="text-center p-2">Moc</th>
+                        <th className="text-center p-2">Status</th>
+                        <th className="text-center p-2">Postęp</th>
+                        <th className="text-center p-2">Akcje</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {player.projects.map(project => {
+                        const region = project.region ? project.region.substring(0, 3) + '...' : 'N/A';
+                        return (
+                          <tr 
+                            key={project.id} 
+                            className={`hover:bg-gray-50 cursor-pointer ${selectedProject === project.id ? 'bg-blue-50' : ''}`}
+                            onClick={() => onSelectProject(project.id)}
+                          >
+                            <td className="p-2">{project.name}</td>
+                            <td className="text-center p-2">{region}</td>
+                            <td className="text-center p-2">{project.power} MW</td>
+                            <td className="text-center p-2">{translateStage(project.status)}</td>
+                            <td className="p-2">
+                              <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                                <div 
+                                  className={`h-full ${getStatusColorClass(project.status)}`} 
+                                  style={{width: `${project.progress}%`}}
+                                ></div>
+                              </div>
+                            </td>
+                            <td className="text-center p-2">
+                              {project.progress >= 100 && project.status !== 'ready_to_build' && (
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onAdvanceProject(project.id);
+                                  }}
+                                  className="px-2 py-1 bg-green-500 text-white rounded text-xs"
+                                >
+                                  Następny etap
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-500">Nie masz jeszcze żadnych projektów</p>
+              )}
+            </div>
+            
+            {/* Szczegóły wybranego projektu */}
+            {selectedProjectData && (
+              <div className="bg-white p-4 rounded shadow">
+                <h3 className="font-bold text-lg mb-3">Szczegóły projektu: {selectedProjectData.name}</h3>
+                
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div className="bg-gray-100 p-3 rounded">
+                    <div className="text-sm text-gray-500">Moc</div>
+                    <div className="text-xl font-bold">{selectedProjectData.power} MW</div>
+                  </div>
+                  <div className="bg-gray-100 p-3 rounded">
+                    <div className="text-sm text-gray-500">Powierzchnia</div>
+                    <div className="text-xl font-bold">{selectedProjectData.size} ha</div>
+                  </div>
+                  <div className="bg-gray-100 p-3 rounded">
+                    <div className="text-sm text-gray-500">Status</div>
+                    <div className="text-xl font-bold">{translateStage(selectedProjectData.status)}</div>
+                  </div>
+                  <div className="bg-gray-100 p-3 rounded">
+                    <div className="text-sm text-gray-500">Rozpoczęty</div>
+                    <div className="text-xl font-bold">Tura {selectedProjectData.startedOn}</div>
+                  </div>
+                  <div className="bg-gray-100 p-3 rounded">
+                    <div className="text-sm text-gray-500">Dotychczasowy koszt</div>
+                    <div className="text-xl font-bold">{selectedProjectData.totalCost.toLocaleString()} PLN</div>
+                  </div>
+                  <div className="bg-gray-100 p-3 rounded">
+                    <div className="text-sm text-gray-500">Szacowany zysk roczny</div>
+                    <div className="text-xl font-bold">{selectedProjectData.estimatedProfit.toLocaleString()} PLN</div>
+                  </div>
+                </div>
+                
+                {/* Postęp projektu */}
+                <div className="mb-4">
+                  <h4 className="font-medium mb-2">Postęp etapów</h4>
+                  <div className="space-y-2">
+                    <div className="flex items-center">
+                      <div className="w-32 text-sm">Pozyskanie gruntów</div>
+                      <div className="flex-1 mx-2">
+                        <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-blue-500" 
+                            style={{width: `${selectedProjectData.status === 'land_acquisition' ? selectedProjectData.progress : 100}%`}}
+                          ></div>
+                        </div>
+                      </div>
+                      <div className="w-12 text-sm text-right">{selectedProjectData.status === 'land_acquisition' ? `${Math.floor(selectedProjectData.progress)}%` : 'Ukończony'}</div>
+                    </div>
+                    
+                    <div className="flex items-center">
+                      <div className="w-32 text-sm">Decyzja środowiskowa</div>
+                      <div className="flex-1 mx-2">
+                        <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-yellow-500" 
+                            style={{
+                              width: `${
+                                selectedProjectData.status === 'environmental_decision' ? selectedProjectData.progress :
+                                selectedProjectData.statusIndex > 1 ? 100 : 0
+                              }%`
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                      <div className="w-12 text-sm text-right">
+                        {selectedProjectData.status === 'environmental_decision' ? `${Math.floor(selectedProjectData.progress)}%` : 
+                         selectedProjectData.statusIndex > 1 ? 'Ukończony' : 'Nie rozpoczęty'}
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center">
+                      <div className="w-32 text-sm">Warunki zabudowy</div>
+                      <div className="flex-1 mx-2">
+                        <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-orange-500" 
+                            style={{
+                              width: `${
+                                selectedProjectData.status === 'zoning_conditions' ? selectedProjectData.progress :
+                                selectedProjectData.statusIndex > 2 ? 100 : 0
+                              }%`
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                      <div className="w-12 text-sm text-right">
+                        {selectedProjectData.status === 'zoning_conditions' ? `${Math.floor(selectedProjectData.progress)}%` : 
+                         selectedProjectData.statusIndex > 2 ? 'Ukończony' : 'Nie rozpoczęty'}
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center">
+                      <div className="w-32 text-sm">Przyłączenie</div>
+                      <div className="flex-1 mx-2">
+                        <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-purple-500" 
+                            style={{
+                              width: `${
+                                selectedProjectData.status === 'grid_connection' ? selectedProjectData.progress :
+                                selectedProjectData.statusIndex > 3 ? 100 : 0
+                              }%`
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                      <div className="w-12 text-sm text-right">
+                        {selectedProjectData.status === 'grid_connection' ? `${Math.floor(selectedProjectData.progress)}%` : 
+                         selectedProjectData.statusIndex > 3 ? 'Ukończony' : 'Nie rozpoczęty'}
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center">
+                      <div className="w-32 text-sm">Budowa</div>
+                      <div className="flex-1 mx-2">
+                        <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-red-500" 
+                            style={{
+                              width: `${
+                                selectedProjectData.status === 'construction' ? selectedProjectData.progress :
+                                selectedProjectData.statusIndex > 4 ? 100 : 0
+                              }%`
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                      <div className="w-12 text-sm text-right">
+                        {selectedProjectData.status === 'construction' ? `${Math.floor(selectedProjectData.progress)}%` : 
+                         selectedProjectData.statusIndex > 4 ? 'Ukończony' : 'Nie rozpoczęty'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Historia projektu */}
+                <div>
+                  <h4 className="font-medium mb-2">Historia projektu</h4>
+                  <div className="max-h-40 overflow-y-auto bg-gray-50 p-2 rounded">
+                    {selectedProjectData.events.length > 0 ? (
+                      <ul className="text-sm space-y-1">
+                        {selectedProjectData.events.map((event, index) => (
+                          <li key={index} className="flex">
+                            <span className="font-medium w-16">Tura {event.turn}:</span>
+                            <span>{event.text}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-gray-500 text-sm">Brak historii zdarzeń</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Panel finansów */}
+        {activeTab === 'finances' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-white p-3 rounded shadow">
+                <div className="text-sm text-gray-500">Gotówka</div>
+                <div className="text-xl font-bold">{player.cash.toLocaleString()} PLN</div>
+              </div>
+              <div className="bg-white p-3 rounded shadow">
+                <div className="text-sm text-gray-500">Miesięczne koszty personelu</div>
+                <div className="text-xl font-bold">
+                  {(
+                    player.staff.scouts.reduce((sum, s) => sum + s.salary, 0) +
+                    player.staff.developers.reduce((sum, d) => sum + d.salary, 0) +
+                    player.staff.lobbyists.reduce((sum, l) => sum + l.salary, 0)
+                  ).toLocaleString()} PLN
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white p-4 rounded shadow">
+              <h3 className="font-bold text-lg mb-3">Szacowane przychody z projektów</h3>
+              
+              {player.projects.filter(p => p.status === 'ready_to_build').length > 0 ? (
+                <div className="mb-4">
+                  <table className="min-w-full">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="text-left p-2">Projekt</th>
+                        <th className="text-center p-2">Moc</th>
+                        <th className="text-center p-2">Szacowany roczny przychód</th>
+                        <th className="text-center p-2">ROI</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {player.projects.filter(p => p.status === 'ready_to_build').map(project => {
+                        const roi = ((project.estimatedProfit / project.totalCost) * 100).toFixed(1);
+                        return (
+                          <tr key={project.id} className="hover:bg-gray-50">
+                            <td className="p-2">{project.name}</td>
+                            <td className="text-center p-2">{project.power} MW</td>
+                            <td className="text-center p-2">{project.estimatedProfit.toLocaleString()} PLN</td>
+                            <td className="text-center p-2">{roi}%</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-500">Nie masz jeszcze projektów gotowych do budowy (RTB)</p>
+              )}
+              
+              <div className="bg-blue-50 p-3 rounded">
+                <h4 className="font-medium mb-2">Informacje o przychodach</h4>
+                <p className="text-sm">Po osiągnięciu statusu Ready-to-Build (RTB), masz trzy opcje:</p>
+                <ol className="text-sm list-decimal pl-5 mt-1 space-y-1">
+                  <li>Sprzedaż projektu RTB - natychmiastowy wysoki przychód</li>
+                  <li>Budowa i udział w aukcji OZE - stabilne, regulowane przychody przez 15 lat</li>
+                  <li>Budowa i sprzedaż energii na rynku - wyższe potencjalne zyski, ale większe ryzyko</li>
+                </ol>
+                <p className="text-sm mt-2">W tej wersji gry celem jest osiągnięcie 100 GW mocy w projektach RTB.</p>
+              </div>
+            </div>
+            
+            <div className="bg-white p-4 rounded shadow">
+              <h3 className="font-bold text-lg mb-3">Koszty projektów</h3>
+              
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <h4 className="font-medium mb-2">Pozyskanie gruntów</h4>
+                  <ul className="text-sm space-y-1">
+                    <li>Koszt umowy: 30-50 tys. zł za hektar</li>
+                    <li>Typowy projekt: 30-80 hektarów</li>
+                    <li>Całkowity koszt: 1-4 mln zł</li>
+                  </ul>
+                </div>
+                
+                <div>
+                  <h4 className="font-medium mb-2">Decyzja środowiskowa</h4>
+                  <ul className="text-sm space-y-1">
+                    <li>Koszt dokumentacji: 80-150 tys. zł</li>
+                    <li>Czas trwania: 10-17 tur</li>
+                    <li>Ryzyko odrzucenia: 20-40%</li>
+                  </ul>
+                </div>
+                
+                <div>
+                  <h4 className="font-medium mb-2">Warunki zabudowy / MPZP</h4>
+                  <ul className="text-sm space-y-1">
+                    <li>Koszt procedury: 120-200 tys. zł</li>
+                    <li>Czas trwania: 8-13 tur</li>
+                    <li>Wpływ lobbystów: znaczący</li>
+                  </ul>
+                </div>
+                
+                <div>
+                  <h4 className="font-medium mb-2">Warunki przyłączenia</h4>
+                  <ul className="text-sm space-y-1">
+                    <li>Zaliczka: 30 tys. zł/kW</li>
+                    <li>Czas trwania: 12-21 tur</li>
+                    <li>Ograniczone dostępne moce</li>
+                  </ul>
+                </div>
+              </div>
+              
+              <div>
+                <h4 className="font-medium mb-2">Budowa</h4>
+                <ul className="text-sm space-y-1">
+                  <li>Koszt EPC: ~3 mln zł/MW</li>
+                  <li>Czas budowy: 15-24 tur</li>
+                  <li>Wpływ doświadczonych developerów: przyspieszenie 10-20%</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {/* Panel działań "szarej strefy" */}
+      <div className="w-1/3 bg-gray-800 text-white p-4 overflow-y-auto">
+        <h3 className="font-bold text-lg mb-4 text-yellow-400">Działania w szarej strefie</h3>
+        
+        <div className="space-y-4">
+          <div className="bg-gray-700 p-3 rounded">
+            <div className="flex justify-between mb-2">
+              <div className="font-bold">Sieć korupcyjna</div>
+              <div>{player.illegals.corruptionNetwork}/100</div>
+            </div>
+            <div className="w-full bg-gray-600 h-2 mb-2 rounded-full overflow-hidden">
+              <div 
+                className="bg-yellow-400 h-full" 
+                style={{width: `${player.illegals.corruptionNetwork}%`}}
+              ></div>
+            </div>
+            <button 
+              onClick={() => onInvestIllegal('corruption')}
+              className="w-full py-1 bg-yellow-500 text-gray-800 rounded text-sm font-bold"
+            >
+              Rozwijaj sieć (500K PLN)
+            </button>
+            <p className="mt-2 text-xs text-gray-400">Przyspiesza procedury administracyjne i zwiększa szanse na pozytywne decyzje środowiskowe.</p>
+            
+            <div className="mt-2 text-xs">
+              <div className="font-medium">Efekty:</div>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>+{(player.illegals.corruptionNetwork / 10).toFixed(1)}% szybkości decyzji środowiskowych</li>
+                <li>+{(player.illegals.corruptionNetwork / 15).toFixed(1)}% szybkości uzyskiwania warunków zabudowy</li>
+                <li>+{(player.illegals.corruptionNetwork / 20).toFixed(1)}% szybkości przyłączenia do sieci</li>
+              </ul>
+            </div>
+          </div>
+          
+          <div className="bg-gray-700 p-3 rounded">
+            <div className="flex justify-between mb-2">
+              <div className="font-bold">Zastraszanie</div>
+              <div>{player.illegals.intimidationPower}/100</div>
+            </div>
+            <div className="w-full bg-gray-600 h-2 mb-2 rounded-full overflow-hidden">
+              <div 
+                className="bg-red-500 h-full" 
+                style={{width: `${player.illegals.intimidationPower}%`}}
+              ></div>
+            </div>
+            <button 
+              onClick={() => onInvestIllegal('intimidation')}
+              className="w-full py-1 bg-red-500 text-white rounded text-sm font-bold"
+            >
+              Inwestuj (400K PLN)
+            </button>
+            <p className="mt-2 text-xs text-gray-400">Zwiększa szanse na korzystne umowy dzierżawy, ale może wywołać protesty.</p>
+            
+            <div className="mt-2 text-xs">
+              <div className="font-medium">Efekty:</div>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>-{(player.illegals.intimidationPower / 5).toFixed(1)}% kosztów pozyskania gruntów</li>
+                <li>+{(player.illegals.intimidationPower / 4).toFixed(1)}% ryzyko protestów społecznych</li>
+                <li>-{(player.illegals.intimidationPower / 10).toFixed(1)} punktów reputacji</li>
+              </ul>
+            </div>
+          </div>
+          
+          <div className="bg-gray-700 p-3 rounded">
+            <div className="flex justify-between mb-2">
+              <div className="font-bold">Fałszowanie dokumentów</div>
+              <div>{player.illegals.forgeryExpertise}/100</div>
+            </div>
+            <div className="w-full bg-gray-600 h-2 mb-2 rounded-full overflow-hidden">
+              <div 
+                className="bg-purple-500 h-full" 
+                style={{width: `${player.illegals.forgeryExpertise}%`}}
+              ></div>
+            </div>
+            <button 
+              onClick={() => onInvestIllegal('forgery')}
+              className="w-full py-1 bg-purple-500 text-white rounded text-sm font-bold"
+            >
+              Rozwijaj (600K PLN)
+            </button>
+            <p className="mt-2 text-xs text-gray-400">Drastycznie przyspiesza procedury, ale niesie najwyższe ryzyko całkowitej utraty projektu.</p>
+            
+            <div className="mt-2 text-xs">
+              <div className="font-medium">Efekty:</div>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>+{(player.illegals.forgeryExpertise / 4).toFixed(1)}% szybkości wszystkich procedur</li>
+                <li>{(player.illegals.forgeryExpertise / 10).toFixed(1)}% szansy na wykrycie (utrata projektu)</li>
+                <li>-{(player.illegals.forgeryExpertise / 5).toFixed(1)} punktów reputacji</li>
+              </ul>
+            </div>
+          </div>
+          
+          <div className="bg-gray-700 p-3 rounded">
+            <div className="flex justify-between mb-2">
+              <div className="font-bold">Nielegalna baza danych</div>
+              <div>{player.illegals.hasIllegalDatabase ? 'Aktywna' : 'Nieaktywna'}</div>
+            </div>
+            <button 
+              onClick={() => onInvestIllegal('database')}
+              className={`w-full py-1 ${
+                player.illegals.hasIllegalDatabase 
+                  ? 'bg-green-500 text-white cursor-not-allowed opacity-50' 
+                  : 'bg-blue-500 text-white'
+              } rounded text-sm font-bold`}
+              disabled={player.illegals.hasIllegalDatabase}
+            >
+              {player.illegals.hasIllegalDatabase ? 'Posiadasz' : 'Zdobądź nielegalną bazę (2M PLN)'}
+            </button>
+            <p className="mt-2 text-xs text-gray-400">Uzyskaj natychmiastowy dostęp do szczegółowych informacji o gruntach, przyspieszając etap pozyskiwania o 50%.</p>
+            
+            {player.illegals.hasIllegalDatabase && (
+              <div className="mt-2 text-xs">
+                <div className="font-medium">Aktywne efekty:</div>
+                <ul className="list-disc pl-4 space-y-1">
+                  <li>+50% szybkość pozyskiwania gruntów</li>
+                  <li>-15% kosztów pozyskania gruntów</li>
+                  <li>Identyfikacja najlepszych lokalizacji</li>
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        <div className="mt-6 p-3 bg-red-900 rounded">
+          <h4 className="font-bold mb-2">Ostrzeżenie</h4>
+          <p className="text-sm">Wszystkie działania w szarej strefie wiążą się z ryzykiem wykrycia. Możliwe konsekwencje to kary finansowe, utrata reputacji, a nawet blokada projektów.</p>
+        </div>
+        
+        <div className="mt-4 p-3 bg-gray-700 rounded">
+          <h4 className="font-bold mb-2 text-yellow-400">Wskaźniki ryzyka</h4>
+          <div className="space-y-2">
+            <div>
+              <div className="text-sm flex justify-between">
+                <span>Ryzyko wykrycia:</span>
+                <span className="font-medium">{Math.min(90, Math.max(10, 10 + (player.illegals.corruptionNetwork / 10) + (player.illegals.forgeryExpertise / 8))).toFixed(1)}%</span>
+              </div>
+              <div className="w-full bg-gray-600 h-2 rounded-full overflow-hidden">
+                <div 
+                  className="bg-red-500 h-full" 
+                  style={{width: `${Math.min(90, Math.max(10, 10 + (player.illegals.corruptionNetwork / 10) + (player.illegals.forgeryExpertise / 8)))}%`}}
+                ></div>
+              </div>
+            </div>
+            
+            <div>
+              <div className="text-sm flex justify-between">
+                <span>Wpływ na reputację:</span>
+                <span className="font-medium">{(10 + (player.illegals.intimidationPower / 10) + (player.illegals.forgeryExpertise / 5)).toFixed(1)} pkt</span>
+              </div>
+              <div className="w-full bg-gray-600 h-2 rounded-full overflow-hidden">
+                <div 
+                  className="bg-orange-500 h-full" 
+                  style={{width: `${Math.min(100, 10 + (player.illegals.intimidationPower / 10) + (player.illegals.forgeryExpertise / 5))}%`}}
+                ></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Komponent widoku wydarzeń
+const EventsView = ({ events, turn }) => {
+  // Filtrujemy aktywne wydarzenia (które jeszcze nie wygasły)
+  const activeEvents = events.filter(e => (!e.expires || e.expires > turn));
+  
+  // Filtrujemy wydarzenia globalne i lokalne
+  const globalEvents = activeEvents.filter(e => !e.regionId);
+  const localEvents = activeEvents.filter(e => e.regionId);
+  
+  // Sortujemy wydarzenia od najnowszych
+  const sortedEvents = [...events].sort((a, b) => b.turn - a.turn);
+
+  return (
+    <div className="flex flex-1">
+      <div className="flex-1 p-4 overflow-y-auto">
+        <h2 className="text-xl font-bold mb-4">Panel wydarzeń</h2>
+        
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="bg-white p-3 rounded shadow">
+            <div className="text-sm text-gray-500">Aktywne wydarzenia</div>
+            <div className="text-xl font-bold">{activeEvents.length}</div>
+          </div>
+          <div className="bg-white p-3 rounded shadow">
+            <div className="text-sm text-gray-500">Globalne / Lokalne</div>
+            <div className="text-xl font-bold">{globalEvents.length} / {localEvents.length}</div>
+          </div>
+        </div>
+        
+        {/* Aktywne wydarzenia */}
+        <div className="bg-white p-4 rounded shadow mb-4">
+          <h3 className="font-bold text-lg mb-3 flex items-center">
+            <AlertTriangle className="h-5 w-5 mr-2" />
+            Aktywne wydarzenia
+          </h3>
+          
+          {activeEvents.length > 0 ? (
+            <div className="space-y-3">
+              {activeEvents.map(event => (
+                <div 
+                  key={event.id} 
+                  className={`p-3 rounded ${
+                    event.severity === 'positive' ? 'bg-green-100 text-green-800' :
+                    event.severity === 'negative' ? 'bg-red-100 text-red-800' :
+                    event.severity === 'high' ? 'bg-red-200 text-red-900' :
+                    'bg-blue-100 text-blue-800'
+                  }`}
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="font-bold">{event.title}</div>
+                    <div className="text-xs bg-gray-200 rounded px-2 py-1 text-gray-800">
+                      Tura {event.turn}
+                      {event.expires && <span> (wygasa: {event.expires})</span>}
+                    </div>
+                  </div>
+                  <div className="mt-1">{event.description}</div>
+                  
+                  {event.effects && event.effects.length > 0 && (
+                    <div className="mt-2 text-sm">
+                      <div className="font-medium">Efekty:</div>
+                      <ul className="list-disc pl-4 space-y-1">
+                        {event.effects.map((effect, index) => (
+                          <li key={index}>
+                            {translateEventEffect(effect)}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {event.regionId && (
+                    <div className="mt-2 text-sm">
+                      <span className="font-medium">Region:</span> {event.regionId}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-gray-500">Brak aktywnych wydarzeń</p>
+          )}
+        </div>
+        
+        {/* Historia wydarzeń */}
+        <div className="bg-white p-4 rounded shadow">
+          <h3 className="font-bold text-lg mb-3">Historia wydarzeń</h3>
+          
+          {sortedEvents.length > 0 ? (
+            <div className="max-h-80 overflow-y-auto">
+              <table className="min-w-full">
+                <thead className="bg-gray-100 sticky top-0">
+                  <tr>
+                    <th className="text-center p-2">Tura</th>
+                    <th className="text-left p-2">Wydarzenie</th>
+                    <th className="text-center p-2">Typ</th>
+                    <th className="text-center p-2">Region</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {sortedEvents.map(event => (
+                    <tr key={event.id} className="hover:bg-gray-50">
+                      <td className="text-center p-2">{event.turn}</td>
+                      <td className="p-2">{event.title}</td>
+                      <td className="text-center p-2">{translateEventType(event.type)}</td>
+                      <td className="text-center p-2">{event.regionId || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-gray-500">Brak historii wydarzeń</p>
+          )}
+        </div>
+      </div>
+      
+      {/* Panel podsumowania */}
+      <div className="w-1/3 bg-gray-100 p-4 overflow-y-auto">
+        <h3 className="font-bold text-lg mb-4">Wpływ wydarzeń na grę</h3>
+        
+        <div className="space-y-4">
+          <div className="bg-white p-3 rounded shadow">
+            <h4 className="font-medium mb-2">Aktualne modyfikatory</h4>
+            
+            <div className="space-y-2">
+              {/* Modyfikatory projektów */}
+              <div>
+                <div className="text-sm font-medium">Szybkość rozwoju projektów:</div>
+                <div className="flex items-center">
+                  {getGlobalProjectSpeedModifier(events, turn) > 1 ? (
+                    <>
+                      <div className="text-green-600 font-bold">+{((getGlobalProjectSpeedModifier(events, turn) - 1) * 100).toFixed(0)}%</div>
+                      <div className="text-sm text-gray-500 ml-2">(przyspieszenie)</div>
+                    </>
+                  ) : getGlobalProjectSpeedModifier(events, turn) < 1 ? (
+                    <>
+                      <div className="text-red-600 font-bold">{((getGlobalProjectSpeedModifier(events, turn) - 1) * 100).toFixed(0)}%</div>
+                      <div className="text-sm text-gray-500 ml-2">(spowolnienie)</div>
+                    </>
+                  ) : (
+                    <div className="text-gray-600">Brak modyfikatorów</div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Modyfikatory cen energii */}
+              <div>
+                <div className="text-sm font-medium">Ceny energii:</div>
+                <div className="flex items-center">
+                  {getEnergyPriceModifier(events, turn) > 1 ? (
+                    <>
+                      <div className="text-green-600 font-bold">+{((getEnergyPriceModifier(events, turn) - 1) * 100).toFixed(0)}%</div>
+                      <div className="text-sm text-gray-500 ml-2">(wzrost)</div>
+                    </>
+                  ) : getEnergyPriceModifier(events, turn) < 1 ? (
+                    <>
+                      <div className="text-red-600 font-bold">{((getEnergyPriceModifier(events, turn) - 1) * 100).toFixed(0)}%</div>
+                      <div className="text-sm text-gray-500 ml-2">(spadek)</div>
+                    </>
+                  ) : (
+                    <div className="text-gray-600">Brak modyfikatorów</div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Modyfikatory akceptacji społecznej */}
+              <div>
+                <div className="text-sm font-medium">Globalna akceptacja społeczna:</div>
+                <div className="flex items-center">
+                  {getSocialAcceptanceModifier(events, turn) > 0 ? (
+                    <>
+                      <div className="text-green-600 font-bold">+{getSocialAcceptanceModifier(events, turn)}</div>
+                      <div className="text-sm text-gray-500 ml-2">(wzrost)</div>
+                    </>
+                  ) : getSocialAcceptanceModifier(events, turn) < 0 ? (
+                    <>
+                      <div className="text-red-600 font-bold">{getSocialAcceptanceModifier(events, turn)}</div>
+                      <div className="text-sm text-gray-500 ml-2">(spadek)</div>
+                    </>
+                  ) : (
+                    <div className="text-gray-600">Brak modyfikatorów</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-white p-3 rounded shadow">
+            <h4 className="font-medium mb-2">Dotknięte regiony</h4>
+            
+            {localEvents.length > 0 ? (
+              <div className="space-y-2">
+                {Array.from(new Set(localEvents.map(e => e.regionId))).map(regionId => {
+                  const regionEvents = localEvents.filter(e => e.regionId === regionId);
+                  return (
+                    <div key={regionId} className="p-2 bg-gray-50 rounded">
+                      <div className="font-medium">{regionId}</div>
+                      <div className="text-sm">
+                        {regionEvents.length} aktywnych wydarzeń
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {regionEvents.map(e => e.title).join(', ')}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-gray-500">Brak aktywnych wydarzeń lokalnych</p>
+            )}
+          </div>
+          
+          <div className="bg-white p-3 rounded shadow">
+            <h4 className="font-medium mb-2">Porady strategiczne</h4>
+            
+            <ul className="text-sm space-y-2">
+              <li className="flex">
+                <div className="text-green-600 font-bold mr-2">•</div>
+                <div>Monitoruj wydarzenia wpływające na regiony, w których rozwijasz projekty.</div>
+              </li>
+              <li className="flex">
+                <div className="text-green-600 font-bold mr-2">•</div>
+                <div>Wykorzystuj pozytywne wydarzenia do przyspieszenia trudnych etapów projektu.</div>
+              </li>
+              <li className="flex">
+                <div className="text-green-600 font-bold mr-2">•</div>
+                <div>Przygotuj zapas gotówki na wypadek nieoczekiwanych negatywnych wydarzeń.</div>
+              </li>
+              <li className="flex">
+                <div className="text-green-600 font-bold mr-2">•</div>
+                <div>Dywersyfikuj projekty geograficznie, aby zmniejszyć wpływ lokalnych zdarzeń.</div>
+              </li>
+              <li className="flex">
+                <div className="text-green-600 font-bold mr-2">•</div>
+                <div>Inwestuj w reputację, aby łatwiej przetrwać kryzysy i protesty społeczne.</div>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Komponent widoku konkurencji
+const CompetitorsView = ({ competitors, playerPower }) => {
+  // Sortujemy konkurentów według mocy RTB (malejąco)
+  const sortedCompetitors = [...competitors].sort((a, b) => b.rtbPower - a.rtbPower);
+  
+  // Dodajemy gracza do rankingu
+  const ranking = [
+    ...sortedCompetitors,
+    { id: 'player', name: 'Twoja firma', rtbPower: playerPower, power: playerPower * 1.2 }
+  ].sort((a, b) => b.rtbPower - a.rtbPower);
+  
+  // Znajdujemy pozycję gracza w rankingu
+  const playerRank = ranking.findIndex(r => r.id === 'player') + 1;
+
+  return (
+    <div className="flex flex-1">
+      <div className="flex-1 p-4 overflow-y-auto">
+        <h2 className="text-xl font-bold mb-4">Analiza konkurencji</h2>
+        
+        <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="bg-white p-3 rounded shadow">
+            <div className="text-sm text-gray-500">Twoja pozycja</div>
+            <div className="text-xl font-bold">{playerRank} miejsce</div>
+          </div>
+          <div className="bg-white p-3 rounded shadow">
+            <div className="text-sm text-gray-500">Twoja moc RTB</div>
+            <div className="text-xl font-bold">{playerPower.toLocaleString()} MW</div>
+          </div>
+          <div className="bg-white p-3 rounded shadow">
+            <div className="text-sm text-gray-500">Lider rynku</div>
+            <div className="text-xl font-bold">{ranking[0].name}</div>
+            <div className="text-sm text-gray-500">{ranking[0].rtbPower.toLocaleString()} MW</div>
+          </div>
+        </div>
+        
+        {/* Ranking firm */}
+        <div className="bg-white p-4 rounded shadow mb-4">
+          <h3 className="font-bold text-lg mb-3">Ranking deweloperów OZE</h3>
+          
+          <table className="min-w-full">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="text-center p-2">Miejsce</th>
+                <th className="text-left p-2">Firma</th>
+                <th className="text-center p-2">Moc RTB</th>
+                <th className="text-center p-2">Portfel projektów</th>
+                <th className="text-right p-2">Udział w rynku</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {ranking.map((company, index) => {
+                const isPlayer = company.id === 'player';
+                const marketShare = (company.rtbPower / ranking.reduce((sum, c) => sum + c.rtbPower, 0) * 100).toFixed(1);
+                
+                return (
+                  <tr key={company.id} className={`${isPlayer ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                    <td className="text-center p-2 font-medium">{index + 1}</td>
+                    <td className="p-2">
+                      {isPlayer ? (
+                        <div className="font-bold text-blue-600">{company.name}</div>
+                      ) : (
+                        company.name
+                      )}
+                    </td>
+                    <td className="text-center p-2">{company.rtbPower.toLocaleString()} MW</td>
+                    <td className="text-center p-2">{company.power.toLocaleString()} MW</td>
+                    <td className="text-right p-2">
+                      <div className="flex items-center justify-end">
+                        <div>{marketShare}%</div>
+                        <div className="ml-2 w-16 bg-gray-200 h-2 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full ${isPlayer ? 'bg-blue-500' : 'bg-gray-500'}`} 
+                            style={{width: `${marketShare}%`}}
+                          ></div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        
+        {/* Szczegóły konkurentów */}
+        <div className="bg-white p-4 rounded shadow">
+          <h3 className="font-bold text-lg mb-3">Strategie konkurentów</h3>
+          
+          <div className="grid grid-cols-3 gap-4">
+            {competitors.map(competitor => (
+              <div key={competitor.id} className="border rounded p-3">
+                <h4 className="font-medium mb-2">{competitor.name}</h4>
+                
+                <div className="space-y-2">
+                  <div className="text-sm">
+                    <span className="font-medium">Strategia:</span> {translateCompetitorStrategy(competitor.strategy)}
+                  </div>
+                  <div className="text-sm">
+                    <span className="font-medium">Reputacja:</span> {competitor.reputation}/100
+                  </div>
+                  <div className="text-sm">
+                    <span className="font-medium">Tempo wzrostu:</span> {((competitor.growth - 1) * 100).toFixed(1)}% na turę
+                  </div>
+                  <div className="text-sm">
+                    <span className="font-medium">Silne regiony:</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {competitor.strongRegions.map(region => (
+                      <div key={region} className="text-xs bg-gray-200 px-2 py-1 rounded">
+                        {region}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      
+      {/* Panel porad */}
+      <div className="w-1/3 bg-gray-100 p-4 overflow-y-auto">
+        <h3 className="font-bold text-lg mb-4">Analiza rynku i porady</h3>
+        
+        <div className="space-y-4">
+          <div className="bg-white p-3 rounded shadow">
+            <h4 className="font-medium mb-2">Twoja pozycja na rynku</h4>
+            
+            {playerRank === 1 ? (
+              <div className="p-3 bg-green-100 text-green-800 rounded">
+                <div className="font-bold">Jesteś liderem rynku!</div>
+                <p className="text-sm mt-1">Utrzymuj przewagę nad konkurencją rozwijając projekty w różnych regionach.</p>
+              </div>
+            ) : (
+              <div className="p-3 bg-blue-100 text-blue-800 rounded">
+                <div className="font-bold">Jesteś na {playerRank}. miejscu</div>
+                <p className="text-sm mt-1">Do lidera brakuje Ci {(ranking[0].rtbPower - playerPower).toLocaleString()} MW mocy w projektach RTB.</p>
+              </div>
+            )}
+            
+            <div className="mt-3 text-sm">
+              <p>Twój udział w rynku: {(playerPower / ranking.reduce((sum, c) => sum + c.rtbPower, 0) * 100).toFixed(1)}%</p>
+              <p className="mt-1">Tempo wzrostu twojego portfela zależy od liczby projektów i zatrudnionych specjalistów.</p>
+            </div>
+          </div>
+          
+          <div className="bg-white p-3 rounded shadow">
+            <h4 className="font-medium mb-2">Analiza konkurentów</h4>
+            
+            <ul className="text-sm space-y-2">
+              {competitors.map(competitor => (
+                <li key={competitor.id} className="flex">
+                  <div className="text-blue-600 font-bold mr-2">•</div>
+                  <div>
+                    <span className="font-medium">{competitor.name}:</span> {getCompetitorAnalysis(competitor, playerPower)}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+          
+          <div className="bg-white p-3 rounded shadow">
+            <h4 className="font-medium mb-2">Porady strategiczne</h4>
+            
+            <ul className="text-sm space-y-2">
+              <li className="flex">
+                <div className="text-green-600 font-bold mr-2">•</div>
+                <div>Skupiaj się na regionach z dobrymi warunkami wiatrowymi/słonecznymi i niską konkurencją.</div>
+              </li>
+              <li className="flex">
+                <div className="text-green-600 font-bold mr-2">•</div>
+                <div>Zatrudniaj doświadczonych specjalistów, aby przyspieszyć rozwój projektów.</div>
+              </li>
+              <li className="flex">
+                <div className="text-green-600 font-bold mr-2">•</div>
+                <div>Dywersyfikuj portfolio projektów geograficznie, aby minimalizować ryzyko.</div>
+              </li>
+              <li className="flex">
+                <div className="text-green-600 font-bold mr-2">•</div>
+                <div>Monitoruj ruchy konkurencji i unikaj regionów, w których są dominujący gracze.</div>
+              </li>
+              <li className="flex">
+                <div className="text-green-600 font-bold mr-2">•</div>
+                <div>Inwestuj w projekty z wysokim ROI, aby maksymalizować zwrot z inwestycji.</div>
+              </li>
+            </ul>
+          </div>
+          
+          <div className="bg-white p-3 rounded shadow">
+            <h4 className="font-medium mb-2">Cel gry</h4>
+            
+            <div className="text-sm">
+              <p>Twoim celem jest osiągnięcie 100,000 MW (100 GW) mocy w projektach RTB jako pierwszy deweloper.</p>
+              <div className="mt-2">
+                <div className="font-medium">Postęp do celu:</div>
+                <div className="w-full bg-gray-200 h-4 rounded-full overflow-hidden mt-1">
+                  <div 
+                    className="h-full bg-green-500 relative" 
+                    style={{width: `${Math.min(100, (playerPower / 100000) * 100)}%`}}
+                  >
+                    <div className="absolute inset-0 flex items-center justify-center text-xs text-white font-bold">
+                      {((playerPower / 100000) * 100).toFixed(1)}%
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Funkcje pomocnicze UI
+function getRegionColorClass(region) {
+  // Obliczamy średnią warunków dla regionu
+  const avgConditions = (region.solarConditions + region.windConditions) / 2;
+  
+  if (avgConditions >= 70) return 'bg-green-200';
+  else if (avgConditions >= 55) return 'bg-yellow-200';
+  else return 'bg-red-200';
+}
+
+function getColorByValue(value) {
+  // Kolor dla wartości 0-100
+  if (value >= 75) return '#22c55e'; // green-500
+  else if (value >= 50) return '#3b82f6'; // blue-500
+  else if (value >= 25) return '#f59e0b'; // amber-500
+  else return '#ef4444'; // red-500
+}
+
+function getStatusColorClass(status) {
+  switch(status) {
+    case 'land_acquisition': return 'bg-blue-500';
+    case 'environmental_decision': return 'bg-yellow-500';
+    case 'zoning_conditions': return 'bg-orange-500';
+    case 'grid_connection': return 'bg-purple-500';
+    case 'construction': return 'bg-red-500';
+    case 'ready_to_build': return 'bg-green-500';
+    default: return 'bg-gray-500';
+  }
+}
+
+function translateStage(stage) {
+  switch(stage) {
+    case 'land_acquisition': return 'Pozyskiwanie gruntów';
+    case 'environmental_decision': return 'Decyzja środowiskowa';
+    case 'zoning_conditions': return 'Warunki zabudowy';
+    case 'grid_connection': return 'Przyłączenie do sieci';
+    case 'construction': return 'Budowa';
+    case 'ready_to_build': return 'Gotowy do budowy';
+    default: return stage;
+  }
+}
+
+function translateEventType(type) {
+  switch(type) {
+    case 'law_change': return 'Zmiana prawa';
+    case 'energy_price_change': return 'Zmiana cen energii';
+    case 'grid_issue': return 'Problem z siecią';
+    case 'public_opinion': return 'Opinia publiczna';
+    case 'protest': return 'Protest';
+    case 'local_authority': return 'Władze lokalne';
+    case 'competitor_action': return 'Akcja konkurencji';
+    case 'environmental_issue': return 'Problem środowiskowy';
+    case 'illegal_detection': return 'Wykrycie nielegalnych działań';
+    default: return type;
+  }
+}
+
+function translateEventEffect(effect) {
+  switch(effect.type) {
+    case 'project_speed':
+      return `Szybkość projektów: ${effect.value > 1 ? '+' : ''}${((effect.value - 1) * 100).toFixed(0)}%`;
+    case 'energy_price':
+      return `Ceny energii: ${effect.value > 1 ? '+' : ''}${((effect.value - 1) * 100).toFixed(0)}%`;
+    case 'grid_capacity':
+      return `Dostępne moce przyłączeniowe: ${effect.value > 1 ? '+' : ''}${((effect.value - 1) * 100).toFixed(0)}%`;
+    case 'social_acceptance':
+      return `Akceptacja społeczna: ${effect.value > 0 ? '+' : ''}${effect.value} punktów`;
+    case 'regional_social_acceptance':
+      return `Akceptacja społeczna w regionie: ${effect.value > 0 ? '+' : ''}${effect.value} punktów`;
+    case 'regional_permit_speed':
+      return `Szybkość pozwoleń w regionie: ${effect.value > 1 ? '+' : ''}${((effect.value - 1) * 100).toFixed(0)}%`;
+    case 'regional_land_availability':
+      return `Dostępność gruntów w regionie: ${effect.value > 1 ? '+' : ''}${((effect.value - 1) * 100).toFixed(0)}%`;
+    case 'regional_land_price':
+      return `Ceny gruntów w regionie: ${effect.value > 1 ? '+' : ''}${((effect.value - 1) * 100).toFixed(0)}%`;
+    case 'regional_environmental_complexity':
+      return `Złożoność środowiskowa w regionie: ${effect.value > 1 ? '+' : ''}${((effect.value - 1) * 100).toFixed(0)}%`;
+    default:
+      return `${effect.type}: ${effect.value}`;
+  }
+}
+
+function translateCompetitorStrategy(strategy) {
+  switch(strategy) {
+    case 'aggressive': return 'Agresywna';
+    case 'balanced': return 'Zrównoważona';
+    case 'conservative': return 'Konserwatywna';
+    default: return strategy;
+  }
+}
+
+function getGlobalProjectSpeedModifier(events, turn) {
+  // Znajdujemy aktywne wydarzenia wpływające na szybkość projektów
+  const speedEvents = events.filter(e => 
+    e.effects && 
+    e.effects.some(effect => effect.type === 'project_speed') && 
+    (!e.expires || e.expires > turn)
+  );
+  
+  // Jeśli nie ma takich wydarzeń, zwracamy neutralny modyfikator (1.0)
+  if (speedEvents.length === 0) return 1.0;
+  
+  // Obliczamy łączny modyfikator, mnożąc wszystkie efekty
+  return speedEvents.reduce((modifier, event) => {
+    const speedEffect = event.effects.find(effect => effect.type === 'project_speed');
+    return modifier * (speedEffect ? speedEffect.value : 1.0);
+  }, 1.0);
+}
+
+function getEnergyPriceModifier(events, turn) {
+  // Znajdujemy aktywne wydarzenia wpływające na ceny energii
+  const priceEvents = events.filter(e => 
+    e.effects && 
+    e.effects.some(effect => effect.type === 'energy_price') && 
+    (!e.expires || e.expires > turn)
+  );
+  
+  // Jeśli nie ma takich wydarzeń, zwracamy neutralny modyfikator (1.0)
+  if (priceEvents.length === 0) return 1.0;
+  
+  // Bierzemy najnowsze wydarzenie wpływające na ceny (zakładamy, że nadpisuje poprzednie)
+  const latestEvent = priceEvents.sort((a, b) => b.turn - a.turn)[0];
+  const priceEffect = latestEvent.effects.find(effect => effect.type === 'energy_price');
+  
+  return priceEffect ? priceEffect.value : 1.0;
+}
+
+function getSocialAcceptanceModifier(events, turn) {
+  // Znajdujemy aktywne wydarzenia wpływające na akceptację społeczną
+  const socialEvents = events.filter(e => 
+    e.effects && 
+    e.effects.some(effect => effect.type === 'social_acceptance') && 
+    (!e.expires || e.expires > turn)
+  );
+  
+  // Jeśli nie ma takich wydarzeń, zwracamy neutralny modyfikator (0)
+  if (socialEvents.length === 0) return 0;
+  
+  // Sumujemy wszystkie efekty akceptacji społecznej
+  return socialEvents.reduce((sum, event) => {
+    const socialEffect = event.effects.find(effect => effect.type === 'social_acceptance');
+    return sum + (socialEffect ? socialEffect.value : 0);
+  }, 0);
+}
+
+function getCompetitorAnalysis(competitor, playerPower) {
+  // Analiza strategii konkurenta
+  if (competitor.rtbPower > playerPower * 1.5) {
+    return `Silny lider, posiada ${competitor.rtbPower.toLocaleString()} MW mocy RTB. Unikaj bezpośredniej konkurencji.`;
+  } else if (competitor.rtbPower > playerPower) {
+    return `Nieznacznie wyprzedza Cię z mocą ${competitor.rtbPower.toLocaleString()} MW. Możliwe do nadrobienia.`;
+  } else if (competitor.rtbPower > playerPower * 0.7) {
+    return `Blisko za Tobą z mocą ${competitor.rtbPower.toLocaleString()} MW. Pilnuj przewagi.`;
+  } else {
+    return `Słabszy konkurent z mocą ${competitor.rtbPower.toLocaleString()} MW. Koncentruje się na regionach ${competitor.strongRegions.slice(0, 2).join(', ')}.`;
+  }
+}
+
+export default App;</content>
