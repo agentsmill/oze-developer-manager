@@ -6,6 +6,7 @@ import CompanyView from "./components/company/CompanyView";
 import EventsView from "./components/events/EventsView";
 import CompetitorsView from "./components/competitors/CompetitorsView";
 import MarketView from "./components/market/MarketView";
+import HRSystem from "./components/HR/HRSystem";
 import { useGameContext } from "./store/GameContext";
 
 // Komponent wybierający aktualny widok
@@ -23,6 +24,8 @@ const ScreenSelector = () => {
       return <CompetitorsView />;
     case "market":
       return <MarketView />;
+    case "hr":
+      return <HRSystem />;
     default:
       return <MapView />;
   }

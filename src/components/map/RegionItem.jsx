@@ -1,73 +1,83 @@
 import React from "react";
-import { useEventsContext } from "../../store/EventContext";
+import { useEventsContext } from "../../store/EventsContext";
 import { getColorByValue } from "../../utils/colors";
+import { Wind, Sun, Map } from "lucide-react";
 
 const RegionItem = ({ region, isSelected, onSelect }) => {
-  const { state: events } = useEventsContext();
-
-  // Sprawdzamy, czy są aktywne wydarzenia w regionie
-  const regionEvents = events.filter((e) => e.regionId === region.id);
-  const hasEvents = regionEvents.length > 0;
+  const { state: eventsState } = useEventsContext();
+  
+  // Defensywnie pobieramy wydarzenia z kontekstu
+  const eventsArray = Array.isArray(eventsState?.events) ? eventsState.events : [];
+  
+  // Sprawdzamy, czy region ma aktywne wydarzenia
+  const hasActiveEvents = React.useMemo(() => {
+    if (!region || !region.id) return false;
+    return eventsArray.some(event => 
+      event.regionId === region.id && (!event.expires || event.expires > Date.now())
+    );
+  }, [eventsArray, region]);
 
   // Określamy kolor regionu na podstawie warunków
   const getRegionColorClass = (region) => {
-    // Obliczamy średnią warunków dla regionu
-    const avgConditions = (region.solarConditions + region.windConditions) / 2;
-
-    if (avgConditions >= 70) return "bg-green-200";
-    else if (avgConditions >= 55) return "bg-yellow-200";
-    else return "bg-red-200";
+    if (!region) return "bg-gray-200";
+    
+    // Poprawiony dostęp do wartości - używamy windConditions zamiast resources.wind
+    const windValue = region.windConditions || 0;
+    const sunValue = region.solarConditions || 0;
+    const landValue = region.availableLand ? (region.availableLand / 20000 * 100) : 0; // normalizacja wartości gruntów do skali 0-100
+    
+    // Średnia wartość zasobów
+    const avgResourceValue = (windValue + sunValue + landValue) / 3;
+    
+    return getColorByValue(avgResourceValue);
   };
 
+  if (!region) return null;
+
   return (
-    <div
-      className={`
-        relative
-        flex items-center justify-center 
-        border-2 ${isSelected ? "border-blue-600" : "border-gray-300"} 
-        ${getRegionColorClass(region)}
-        rounded-lg
-        cursor-pointer 
-        transition-all duration-200
-        hover:opacity-80
-        p-2
-      `}
+    <div 
+      className={`relative p-3 mb-3 rounded-lg shadow-sm transition-all duration-200 ${getRegionColorClass(region)} ${isSelected ? 'ring-2 ring-blue-500 shadow-md' : 'hover:shadow-md hover:brightness-105'} cursor-pointer`}
       onClick={() => onSelect(region.id)}
     >
-      {/* Nazwa regionu */}
-      <div className="text-center z-10">
-        <div className="font-bold text-sm">{region.name}</div>
-        <div className="text-xs">{region.projects.length} projektów</div>
+      <div className="flex justify-between items-start">
+        <div>
+          <h3 className="font-medium text-lg">{region.name}</h3>
+          <div className="text-xs opacity-75 mb-2">Województwo</div>
+        </div>
         {region.isOPRO && (
-          <div className="text-xs text-green-800 font-bold">OPRO</div>
+          <div className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded">OPRO</div>
         )}
       </div>
 
-      {/* Wskaźnik zdarzeń */}
-      {hasEvents && (
-        <div className="absolute top-1 right-1 h-3 w-3 bg-red-500 rounded-full animate-pulse"></div>
-      )}
-
-      {/* Wskaźniki warunków */}
-      <div className="absolute bottom-1 left-1 flex gap-1">
-        <div
-          className="h-2 w-2 rounded-full"
-          style={{ backgroundColor: getColorByValue(region.solarConditions) }}
-          title={`Nasłonecznienie: ${region.solarConditions}/100`}
-        ></div>
-        <div
-          className="h-2 w-2 rounded-full"
-          style={{ backgroundColor: getColorByValue(region.windConditions) }}
-          title={`Warunki wiatrowe: ${region.windConditions}/100`}
-        ></div>
-        <div
-          className="h-2 w-2 rounded-full"
-          style={{ backgroundColor: getColorByValue(region.socialAcceptance) }}
-          title={`Akceptacja społeczna: ${region.socialAcceptance}/100`}
-        ></div>
+      <div className="grid grid-cols-2 gap-2 mt-2">
+        <div className="flex items-center text-sm">
+          <Sun className="h-4 w-4 mr-1 text-yellow-500" />
+          <span>{region.solarConditions}/100</span>
+        </div>
+        <div className="flex items-center text-sm">
+          <Wind className="h-4 w-4 mr-1 text-blue-500" />
+          <span>{region.windConditions}/100</span>
+        </div>
       </div>
+      
+      <div className="flex items-center mt-2 text-sm">
+        <Map className="h-4 w-4 mr-1 text-gray-500" />
+        <span className="text-gray-600">{(region.availableLand / 1000).toFixed(1)}k ha</span>
+        
+        <span className="mx-2 text-gray-400">|</span>
+        
+        <div className="w-2 h-2 rounded-full mr-1" style={{
+          backgroundColor: region.gridCapacity > 400 ? '#10B981' : region.gridCapacity > 300 ? '#FBBF24' : '#EF4444'
+        }}></div>
+        <span className="text-gray-600">{region.gridCapacity} MW</span>
+      </div>
+      
+      {/* Wskaźnik zdarzeń */}
+      {hasActiveEvents && (
+        <div className="absolute top-2 right-2 h-3 w-3 bg-red-500 rounded-full animate-pulse"></div>
+      )}
     </div>
   );
 };
 
-export default React.memo(RegionItem);
+export default RegionItem;

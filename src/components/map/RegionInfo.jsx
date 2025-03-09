@@ -4,14 +4,20 @@ import Button from "../ui/Button";
 import ProgressBar from "../ui/ProgressBar";
 import { Info, Sun, Wind, Battery } from "lucide-react";
 import { getColorByValue } from "../../utils/colors";
-import { useEventsContext } from "../../store/EventContext";
+import { useEventsContext } from "../../store/EventsContext";
 
 const RegionInfo = ({ region, onStartProject }) => {
   const [selectedTechnology, setSelectedTechnology] = useState("PV");
-  const { state: events } = useEventsContext();
-
-  // Filtrujemy aktywne wydarzenia dla tego regionu
-  const regionEvents = events.filter((e) => e.regionId === region.id);
+  const { state: eventsState } = useEventsContext();
+  
+  // Defensywnie pobieramy wydarzenia z kontekstu
+  const eventsArray = Array.isArray(eventsState?.events) ? eventsState.events : [];
+  
+  // Filtrujemy wydarzenia dla tego regionu
+  const regionEvents = React.useMemo(() => {
+    if (!region || !region.id) return [];
+    return eventsArray.filter(event => event.regionId === region.id);
+  }, [eventsArray, region]);
 
   return (
     <div>

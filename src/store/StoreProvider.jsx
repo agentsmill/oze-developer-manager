@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { PlayerProvider, usePlayerContext } from './PlayerContext';
 import { GameProvider, useGameContext } from './GameContext';
-import { EventsProvider, useEventsContext } from './EventContext';
+import { EventsProvider } from './EventsContext';
 import { RegionsProvider } from './RegionContext';
 import { CountyProvider } from './CountyContext';
 import useGameDay from '../hooks/useGameDay';
@@ -13,19 +13,25 @@ import useGameDay from '../hooks/useGameDay';
 const GameDayUpdater = () => {
   const { state: playerState, dispatch: playerDispatch } = usePlayerContext();
   const { state: gameState, dispatch: gameDispatch } = useGameContext();
-  const { dispatch: eventsDispatch } = useEventsContext();
-  const { updateProjects, generateStaffEvents, generateEconomicEvents } = useGameDay();
+  
+  // Używamy hooka bezpośrednio
+  const gameDay = useGameDay();
 
   useEffect(() => {
     const handleNextDay = () => {
+      const { updateProjects, generateStaffEvents, generateEconomicEvents, generateProjectEvents } = gameDay;
+      
       // Aktualizujemy postęp projektów
-      updateProjects(playerState, gameState, playerDispatch, gameDispatch);
+      updateProjects && updateProjects(playerState, gameState, playerDispatch, gameDispatch);
       
       // Generujemy wydarzenia dla pracowników
-      generateStaffEvents(playerState, gameState, playerDispatch, eventsDispatch);
+      generateStaffEvents && generateStaffEvents(playerState, gameState, playerDispatch);
       
       // Generujemy wydarzenia ekonomiczne
-      generateEconomicEvents(playerState, gameState, gameDispatch, eventsDispatch);
+      generateEconomicEvents && generateEconomicEvents(playerState, gameState, gameDispatch);
+      
+      // Generujemy wydarzenia dla projektów
+      generateProjectEvents && generateProjectEvents(playerState, gameState, playerDispatch, gameDispatch);
     };
 
     // Dodajemy nasłuchiwanie na zdarzenie
@@ -35,7 +41,7 @@ const GameDayUpdater = () => {
     return () => {
       window.removeEventListener('next-game-day', handleNextDay);
     };
-  }, [playerState, gameState, playerDispatch, gameDispatch, eventsDispatch, updateProjects, generateStaffEvents, generateEconomicEvents]);
+  }, [playerState, gameState, playerDispatch, gameDispatch, gameDay]);
 
   return null; // Ten komponent nie renderuje żadnego UI
 };

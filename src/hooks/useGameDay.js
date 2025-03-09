@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { generateStaffEvent } from '../models/Staff';
-import { translateStage } from '../utils/translators';
-import { useEventsContext } from '../store/EventContext';
+import { translateStage, translateStaffLevel } from '../utils/translators';
+import { calculateDailyIncome } from '../utils/finance';
 
 /**
  * Hook do zarządzania aktualizacją stanu gry przy zmianie dnia
@@ -15,12 +15,8 @@ import { useEventsContext } from '../store/EventContext';
  * @param {Function} params.playerDispatch - Funkcja dispatch do aktualizacji stanu gracza
  * @param {Object} params.gameState - Stan gry
  * @param {Function} params.gameDispatch - Funkcja dispatch do aktualizacji stanu gry
- * @param {Function} params.eventsDispatch - Funkcja dispatch do aktualizacji stanu wydarzeń
  */
 const useGameDay = () => {
-  // Pobieramy dispatch z EventContext
-  const { dispatch: eventsContextDispatch } = useEventsContext();
-  
   /**
    * Sprawdza wpływ reputacji na koszty projektu
    * @param {number} reputation - Poziom reputacji
@@ -107,9 +103,8 @@ const useGameDay = () => {
    * @param {Object} playerState - Stan gracza
    * @param {Object} gameState - Stan gry
    * @param {Function} playerDispatch - Funkcja dispatch
-   * @param {Function} eventsDispatch - Funkcja dispatch wydarzeń
    */
-  const performAudit = useCallback((playerState, gameState, playerDispatch, eventsDispatch) => {
+  const performAudit = useCallback((playerState, gameState, playerDispatch) => {
     // Sprawdzamy wynik audytu (w oparciu o ilość nielegalnych działań)
     const illegalProjects = playerState.projects.filter(p => p.useIllegalMethods).length;
     const illegalActionsHistory = playerState.illegals.illegalActionHistory.length;
@@ -128,20 +123,6 @@ const useGameDay = () => {
           riskReduction: 10, // Zmniejszenie ryzyka audytu
           fine: 0,
           reputationLoss: 0
-        }
-      });
-      
-      // Dodajemy wydarzenie
-      eventsDispatch({
-        type: 'ADD_EVENT',
-        payload: {
-          id: Date.now() + Math.random(),
-          type: 'audit',
-          title: 'Audyt zakończony sukcesem',
-          description: 'Audyt kontrolny nie wykazał nieprawidłowości. Ryzyko kolejnych kontroli tymczasowo zmniejszone.',
-          severity: 'positive',
-          turn: gameState.turn,
-          expires: gameState.turn + 10
         }
       });
     } else {
@@ -176,21 +157,6 @@ const useGameDay = () => {
           turn: gameState.turn
         }
       });
-      
-      // Dodajemy wydarzenie
-      eventsDispatch({
-        type: 'ADD_EVENT',
-        payload: {
-          id: Date.now() + Math.random(),
-          type: 'audit',
-          title: 'Audyt wykazał nieprawidłowości',
-          description: `Kontrola wykazała naruszenie przepisów. Nałożono karę w wysokości ${totalFine.toLocaleString()} zł i utracono ${reputationLoss} punktów reputacji.`,
-          severity: 'negative',
-          turn: gameState.turn,
-          expires: gameState.turn + 15,
-          fine: totalFine
-        }
-      });
     }
   }, []);
   
@@ -216,34 +182,71 @@ const useGameDay = () => {
       // Pobieramy przypisanych pracowników do projektu
       const assignedStaff = project.assignedStaff || {};
       
-      // Znajdujemy przypisanego developera
-      const developer = assignedStaff.developer 
-        ? playerState.staff.developers?.find(d => d.id === assignedStaff.developer)
-        : null;
-      
-      // Bazowy postęp zależny od umiejętności developera
-      let progressIncrement = developer ? 1 + (developer.skill / 10) : 1;
+      // Bazowy postęp zależny od umiejętności developera - zwiększony 2.5x
+      let progressIncrement = 2.5;
       
       // Modyfikatory postępu w zależności od etapu i przypisanych pracowników
       switch(project.status) {
         case 'land_acquisition':
-          // Znajdujemy przypisanego skauta
-          const scout = assignedStaff.scout
-            ? playerState.staff.scouts?.find(s => s.id === assignedStaff.scout)
-            : null;
+          // Etap dzierżawy jest obsługiwany przez dzierżawców przypisanych do powiatu
+          // Nie przez developera
           
-          if (scout) {
-            // Skauti znacząco przyspieszają pozyskiwanie gruntów
-            progressIncrement += scout.skill / 5; // Bonus od 0.2 do 2.0 punktów
+          // Znajdujemy dzierżawcę przypisanego do miski dzierżawy w powiecie
+          let lessorBonus = 0;
+          
+          if (project.county) {
+            const county = playerState.counties.find(
+              c => c.voivodeship === project.county.voivodeship && c.id === project.county.id
+            );
             
-            // Jeśli scout ma specjalizację "land_acquisition", dajemy dodatkowy bonus
-            if (scout.specialization === "land_acquisition") {
-              progressIncrement *= 1.5;
+            if (county && county.leasePools && county.leasePools[project.technology]) {
+              const lessorIds = county.leasePools[project.technology].lessors || [];
+              
+              // Dla każdego dzierżawcy w puli, dodajemy jego bonus do postępu
+              lessorIds.forEach(lessorId => {
+                const lessor = playerState.staff.lessors?.find(l => l.id === lessorId);
+                if (lessor) {
+                  // Podstawowy bonus od umiejętności dzierżawcy
+                  let lessorSkillBonus = lessor.skill / 5;
+                  
+                  // Dodatkowy bonus za specjalizację pasującą do technologii
+                  const specialization = lessor.specialization?.toLowerCase() || '';
+                  if (
+                    (project.technology === 'PV' && specialization.includes('fotowoltaika')) ||
+                    (project.technology === 'WF' && specialization.includes('wiatrowe')) ||
+                    (project.technology === 'BESS' && specialization.includes('magazyn')) ||
+                    (project.technology.includes('+') && specialization.includes('hybrydowe'))
+                  ) {
+                    lessorSkillBonus *= 1.5;
+                  }
+                  
+                  lessorBonus += lessorSkillBonus;
+                }
+              });
             }
           }
+          
+          // Dodajemy bonus od dzierżawców do postępu
+          progressIncrement += lessorBonus;
+          
+          // Dzierżawa powinna być najszybszym etapem
+          progressIncrement *= 1.5;
           break;
           
         case 'environmental_decision':
+          // Od tego etapu developer jest wymagany
+          const developer = assignedStaff.developer 
+            ? playerState.staff.developers?.find(d => d.id === assignedStaff.developer)
+            : null;
+          
+          if (developer) {
+            // Dodajemy bonus od developera
+            progressIncrement += developer.skill / 5;
+          } else {
+            // Brak developera mocno spowalnia postęp
+            progressIncrement *= 0.3;
+          }
+          
           // Znajdujemy przypisanego specjalistę ds. środowiska
           const envSpecialist = assignedStaff.envSpecialist
             ? playerState.staff.envSpecialists?.find(s => s.id === assignedStaff.envSpecialist)
@@ -261,76 +264,60 @@ const useGameDay = () => {
           break;
           
         case 'zoning_conditions':
-          // Znajdujemy przypisanego prawnika
-          const lawyer = assignedStaff.lawyer
-            ? playerState.staff.lawyers?.find(l => l.id === assignedStaff.lawyer)
+          // Od tego etapu developer jest wymagany
+          const developer2 = assignedStaff.developer 
+            ? playerState.staff.developers?.find(d => d.id === assignedStaff.developer)
             : null;
           
-          // Znajdujemy przypisanego lobbystę
-          const lobbyist = assignedStaff.lobbyist
-            ? playerState.staff.lobbyists?.find(l => l.id === assignedStaff.lobbyist)
-            : null;
-          
-          if (lawyer) {
-            // Prawnicy przyspieszają uzyskiwanie warunków zabudowy
-            progressIncrement += lawyer.skill / 7;
-            
-            // Specjalizacja w obszarze zoning_conditions
-            if (lawyer.specialization === "zoning") {
-              progressIncrement *= 1.4;
-            }
+          if (developer2) {
+            // Dodajemy bonus od developera
+            progressIncrement += developer2.skill / 5;
+          } else {
+            // Brak developera mocno spowalnia postęp
+            progressIncrement *= 0.3;
           }
           
-          if (lobbyist) {
-            // Lobbyści pomagają w uzyskiwaniu warunków zabudowy poprzez naciski
-            progressIncrement += lobbyist.skill / 8;
-          }
+          // Przyspieszone warunki zabudowy
+          progressIncrement *= 1.2;
           break;
           
         case 'grid_connection':
-          // Znajdujemy przypisanego lobbystę
+          // Od tego etapu developer jest wymagany
+          const developer3 = assignedStaff.developer 
+            ? playerState.staff.developers?.find(d => d.id === assignedStaff.developer)
+            : null;
+          
+          if (developer3) {
+            // Dodajemy bonus od developera
+            progressIncrement += developer3.skill / 5;
+          } else {
+            // Brak developera mocno spowalnia postęp
+            progressIncrement *= 0.3;
+          }
+          
+          // Znajdujemy przypisanego lobbystę ds. sieci
           const gridLobbyist = assignedStaff.lobbyist
             ? playerState.staff.lobbyists?.find(l => l.id === assignedStaff.lobbyist)
             : null;
           
-          // Znajdujemy przypisanego prawnika
+          // Znajdujemy przypisanego prawnika ds. sieci
           const gridLawyer = assignedStaff.lawyer
             ? playerState.staff.lawyers?.find(l => l.id === assignedStaff.lawyer)
             : null;
           
           if (gridLobbyist) {
             // Lobbyści znacząco przyspieszają przyłączenie do sieci
-            progressIncrement += gridLobbyist.skill / 6;
-            
-            // Specjalizacja w grid_connection
-            if (gridLobbyist.specialization === "grid") {
-              progressIncrement *= 1.6;
-            }
+            progressIncrement += gridLobbyist.skill / 4;
           }
           
           if (gridLawyer) {
-            // Prawnicy pomagają z dokumentacją przyłączeniową
-            progressIncrement += gridLawyer.skill / 10;
+            // Prawnicy pomagają w uzyskaniu warunków przyłączenia
+            progressIncrement += gridLawyer.skill / 5;
           }
           break;
           
         default:
-          // Domyślny przypadek - brak dodatkowych modyfikatorów
           break;
-      }
-      
-      // Jeśli developer ma odpowiednią specjalizację dla bieżącego etapu, dajemy dodatkowy bonus
-      if (developer) {
-        const stageToSpecialization = {
-          'land_acquisition': 'acquisition',
-          'environmental_decision': 'environmental',
-          'zoning_conditions': 'zoning',
-          'grid_connection': 'grid'
-        };
-        
-        if (developer.specialization === stageToSpecialization[project.status]) {
-          progressIncrement *= 1.3; // 30% bonus za odpowiednią specjalizację
-        }
       }
       
       // Wpływ reputacji na postęp
@@ -341,7 +328,8 @@ const useGameDay = () => {
       const illegalMultiplier = getIllegalActionMultiplier(project, playerState);
       progressIncrement *= illegalMultiplier;
       
-      // Aktualizujemy postęp projektu
+      // Aktualizujemy postęp projektu - dodatkowy mnożnik 1.5 dla wszystkich etapów
+      progressIncrement *= 1.5;
       const newProgress = Math.min(100, project.progress + progressIncrement);
       
       // Aktualizujemy projekt
@@ -433,56 +421,43 @@ const useGameDay = () => {
             turn: gameState.turn
           }
         });
-        
-        // Dodajemy wydarzenie
-        eventsContextDispatch({
-          type: 'ADD_EVENT',
-          payload: {
-            id: Date.now() + Math.random(),
-            type: 'illegal_activity',
-            title: 'Wykrycie nielegalnych działań',
-            description: `W projekcie ${project.name} wykryto nielegalne działania, co wpłynęło negatywnie na reputację firmy.`,
-            severity: 'negative',
-            turn: gameState.turn,
-            expires: gameState.turn + 10,
-            projectId: project.id
-          }
-        });
       }
     });
     
     // Sprawdzamy, czy powinniśmy wyzwolić audit
     if (shouldTriggerAudit(playerState, gameState)) {
-      performAudit(playerState, gameState, playerDispatch, eventsContextDispatch);
+      performAudit(playerState, gameState, playerDispatch);
     }
   }, [getReputationTimeMultiplier, getIllegalActionMultiplier, shouldTriggerAudit, performAudit]);
 
   /**
-   * Generowanie wydarzeń związanych z pracownikami
-   * 
+   * Generuje wydarzenia dla pracowników każdego dnia
    * @param {Object} playerState - Stan gracza
    * @param {Object} gameState - Stan gry
-   * @param {Function} playerDispatch - Funkcja dispatch gracza
-   * @param {Function} eventsDispatch - Funkcja dispatch wydarzeń
+   * @param {Function} playerDispatch - Funkcja dispatch stanu gracza
    */
-  const generateStaffEvents = useCallback((playerState, gameState, playerDispatch, eventsDispatch) => {
+  const generateStaffEvents = useCallback((playerState, gameState, playerDispatch) => {
     if (!playerState || !gameState) return;
     
     // Aktualizujemy tylko, gdy zmienia się tura (co dwa dni)
     if (gameState.day % 2 !== 0) return;
     
-    // Przechodzimy przez wszystkie kategorie pracowników
-    Object.keys(playerState.staff).forEach(staffType => {
-      const staffList = playerState.staff[staffType];
-      if (!staffList || !Array.isArray(staffList) || staffList.length === 0) return;
+    // Tworzymy listę wszystkich typów pracowników
+    const staffTypes = Object.keys(playerState.staff || {});
+    
+    // Dla każdego typu pracowników
+    staffTypes.forEach(staffType => {
+      const staffList = playerState.staff[staffType] || [];
       
+      // Dla każdego pracownika
       staffList.forEach(staff => {
+        // Generowanie wydarzeń losowych
         // Szansa na zdarzenie: 5% na turę
         if (Math.random() < 0.05) {
           const event = generateStaffEvent(staff);
           if (event) {
             // Dodajemy wydarzenie do systemu wydarzeń
-            eventsDispatch({
+            playerDispatch({
               type: 'ADD_EVENT',
               payload: {
                 id: Date.now() + Math.random(),
@@ -530,18 +505,120 @@ const useGameDay = () => {
             }
           }
         }
+        
+        // Automatyczne zwiększanie doświadczenia
+        // Bazowa wartość doświadczenia zdobywanego co turę
+        let baseExperience = 10;
+        
+        // Sprawdzamy, czy firma ma ulepszenie przyspieszające zdobywanie doświadczenia
+        const trainingProgramLevel = playerState.companyUpgrades?.training_program || 0;
+        
+        // Mnożniki w zależności od poziomu ulepszenia
+        const experienceMultipliers = [1, 1.1, 1.2, 1.35]; // 0, 1, 2, 3 poziom
+        
+        // Zwiększamy doświadczenie na podstawie ulepszenia
+        baseExperience *= experienceMultipliers[trainingProgramLevel];
+        
+        // Aktualizujemy doświadczenie pracownika
+        playerDispatch({
+          type: 'UPDATE_STAFF',
+          payload: {
+            staffType,
+            staffId: staff.id,
+            changes: {
+              experience: staff.experience + baseExperience
+            }
+          }
+        });
+        
+        // Sprawdzamy czy pracownik powinien awansować
+        checkStaffForLevelUp(staff, staffType, playerDispatch);
+        
+        // Aktualizacja morale i energii
+        // ...existing code...
       });
     });
   }, []);
+
+  /**
+   * Sprawdza czy pracownik powinien awansować
+   * @param {Object} staff - Pracownik
+   * @param {string} staffType - Typ pracownika
+   * @param {Function} playerDispatch - Funkcja dispatch
+   */
+  const checkStaffForLevelUp = (staff, staffType, playerDispatch) => {
+    // Definiujemy progi doświadczenia dla poszczególnych poziomów
+    const experienceThresholds = {
+      junior: { min: 0, max: 3000, next: 'mid' },
+      mid: { min: 3001, max: 8000, next: 'senior' },
+      senior: { min: 8001, max: Infinity, next: null }
+    };
+    
+    // Aktualne poziomy
+    const currentLevel = staff.level;
+    const currentExp = staff.experience;
+    
+    // Sprawdzamy, czy pracownik przekroczył próg doświadczenia dla swojego poziomu
+    if (currentExp > experienceThresholds[currentLevel].max && experienceThresholds[currentLevel].next) {
+      const newLevel = experienceThresholds[currentLevel].next;
+      
+      // Aktualizujemy poziom pracownika
+      playerDispatch({
+        type: 'UPDATE_STAFF',
+        payload: {
+          staffType,
+          staffId: staff.id,
+          changes: {
+            level: newLevel,
+            historia: [...(staff.historia || []), {
+              data: new Date().toISOString(),
+              typ: 'awans',
+              opis: `Awansował na pozycję ${translateStaffLevel(newLevel)}`
+            }]
+          }
+        }
+      });
+      
+      // Zwiększamy też umiejętności
+      if (newLevel === 'mid') {
+        // Przejście z junior na mid
+        const skillIncrease = Math.max(1, Math.floor(Math.random() * 3) + 1); // Wzrost o 1-3 punkty
+        
+        playerDispatch({
+          type: 'UPDATE_STAFF',
+          payload: {
+            staffType,
+            staffId: staff.id,
+            changes: {
+              skill: Math.min(10, staff.skill + skillIncrease)
+            }
+          }
+        });
+      } else if (newLevel === 'senior') {
+        // Przejście z mid na senior
+        const skillIncrease = Math.max(2, Math.floor(Math.random() * 3) + 2); // Wzrost o 2-4 punkty
+        
+        playerDispatch({
+          type: 'UPDATE_STAFF',
+          payload: {
+            staffType,
+            staffId: staff.id,
+            changes: {
+              skill: Math.min(10, staff.skill + skillIncrease)
+            }
+          }
+        });
+      }
+    }
+  };
 
   /**
    * Generuje globalne wydarzenia ekonomiczne
    * @param {Object} playerState - Stan gracza
    * @param {Object} gameState - Stan gry
    * @param {Function} gameDispatch - Funkcja dispatch gry
-   * @param {Function} eventsDispatch - Funkcja dispatch wydarzeń
    */
-  const generateEconomicEvents = useCallback((playerState, gameState, gameDispatch, eventsDispatch) => {
+  const generateEconomicEvents = useCallback((playerState, gameState, gameDispatch) => {
     // Generujemy wydarzenia tylko przy turach podzielnych przez 5
     if (gameState.turn % 5 !== 0) return;
     
@@ -613,7 +690,7 @@ const useGameDay = () => {
       const selectedEvent = economicEvents[Math.floor(Math.random() * economicEvents.length)];
       
       // Dodajemy wydarzenie
-      eventsDispatch({
+      playerDispatch({
         type: 'ADD_EVENT',
         payload: {
           id: Date.now() + Math.random(),
@@ -650,10 +727,447 @@ const useGameDay = () => {
     }
   }, []);
 
+  /**
+   * Generowanie wydarzeń związanych z projektami
+   * Ta funkcja losowo generuje zarówno pozytywne jak i negatywne wydarzenia
+   * wpływające na projekty gracza
+   * 
+   * @param {Object} playerState - Stan gracza
+   * @param {Object} gameState - Stan gry
+   * @param {Function} playerDispatch - Funkcja dispatch gracza
+   * @param {Function} gameDispatch - Funkcja dispatch gry
+   */
+  const generateProjectEvents = useCallback((playerState, gameState, playerDispatch, gameDispatch) => {
+    if (!playerState || !gameState) return;
+    
+    // Generujemy wydarzenia projektowe co 3 dni
+    if (gameState.day % 3 !== 0) return;
+    
+    // Sprawdzamy każdy aktywny projekt
+    playerState.projects.forEach(project => {
+      // Losowa szansa na wydarzenie: 30% dla każdego projektu
+      if (Math.random() < 0.3) {
+        // Określamy typ wydarzenia (pozytywne/negatywne)
+        const isPositive = Math.random() < 0.5;
+        
+        let eventData = {
+          id: `proj_event_${Date.now()}_${Math.random()}`,
+          type: 'project_event',
+          projectId: project.id,
+          title: '',
+          description: '',
+          severity: isPositive ? 'positive' : 'negative',
+          turn: gameState.turn,
+          expires: gameState.turn + Math.floor(Math.random() * 6) + 3, // 3-8 tur
+          effects: {}
+        };
+        
+        // Wybieramy rodzaj wydarzenia w zależności od etapu projektu
+        switch(project.status) {
+          case 'land_acquisition':
+            if (isPositive) {
+              // Pozytywne wydarzenia dla etapu pozyskiwania gruntów
+              const positiveEvents = [
+                {
+                  title: 'Wsparcie lokalnej społeczności',
+                  description: `Mieszkańcy gminy wyrazili poparcie dla projektu ${project.name}, co przyspiesza proces pozyskiwania gruntów.`,
+                  progressBonus: Math.floor(Math.random() * 10) + 5, // +5-15%
+                  reputationChange: 2
+                },
+                {
+                  title: 'Spadek cen dzierżawy',
+                  description: `Właściciele gruntów obniżyli stawki dzierżawy dla projektu ${project.name} o 15%.`,
+                  costModifier: 0.85,
+                  progressBonus: Math.floor(Math.random() * 5) + 3 // +3-8%
+                },
+                {
+                  title: 'Preferencyjne warunki dzierżawy',
+                  description: `Udało się wynegocjować korzystniejsze warunki umowy dla projektu ${project.name}.`,
+                  costModifier: 0.9,
+                  progressBonus: Math.floor(Math.random() * 7) + 4 // +4-11%
+                }
+              ];
+              
+              const selectedEvent = positiveEvents[Math.floor(Math.random() * positiveEvents.length)];
+              eventData = { ...eventData, ...selectedEvent };
+              
+              // Aplikujemy efekty
+              if (selectedEvent.progressBonus) {
+                playerDispatch({
+                  type: 'UPDATE_PROJECT',
+                  payload: {
+                    id: project.id,
+                    changes: {
+                      progress: Math.min(100, project.progress + selectedEvent.progressBonus)
+                    }
+                  }
+                });
+              }
+              
+              if (selectedEvent.costModifier && project.etapCosts) {
+                const newCost = Math.round(project.etapCosts.land_acquisition * selectedEvent.costModifier);
+                playerDispatch({
+                  type: 'UPDATE_PROJECT_STAGE_COST',
+                  payload: {
+                    projectId: project.id,
+                    stage: 'land_acquisition',
+                    cost: newCost
+                  }
+                });
+              }
+              
+              if (selectedEvent.reputationChange) {
+                playerDispatch({
+                  type: 'UPDATE_REPUTATION',
+                  payload: {
+                    change: selectedEvent.reputationChange,
+                    reason: selectedEvent.title,
+                    turn: gameState.turn
+                  }
+                });
+              }
+            } else {
+              // Negatywne wydarzenia dla etapu pozyskiwania gruntów
+              const negativeEvents = [
+                {
+                  title: 'Konflikt o granice działek',
+                  description: `Odkryto nieścisłości w dokumentacji gruntów dla projektu ${project.name}, co opóźnia proces.`,
+                  progressPenalty: Math.floor(Math.random() * 8) + 3 // -3-11%
+                },
+                {
+                  title: 'Wzrost oczekiwań cenowych',
+                  description: `Właściciele gruntów żądają wyższych stawek dzierżawy dla projektu ${project.name}.`,
+                  costModifier: 1.2,
+                  progressPenalty: Math.floor(Math.random() * 5) + 2 // -2-7%
+                },
+                {
+                  title: 'Problemy z dostępem do terenu',
+                  description: `Trudności z dostępem do działek opóźniają analizy terenowe dla projektu ${project.name}.`,
+                  progressPenalty: Math.floor(Math.random() * 10) + 5 // -5-15%
+                }
+              ];
+              
+              const selectedEvent = negativeEvents[Math.floor(Math.random() * negativeEvents.length)];
+              eventData = { ...eventData, ...selectedEvent };
+              
+              // Aplikujemy efekty
+              if (selectedEvent.progressPenalty) {
+                playerDispatch({
+                  type: 'UPDATE_PROJECT',
+                  payload: {
+                    id: project.id,
+                    changes: {
+                      progress: Math.max(0, project.progress - selectedEvent.progressPenalty)
+                    }
+                  }
+                });
+              }
+              
+              if (selectedEvent.costModifier && project.etapCosts) {
+                const newCost = Math.round(project.etapCosts.land_acquisition * selectedEvent.costModifier);
+                playerDispatch({
+                  type: 'UPDATE_PROJECT_STAGE_COST',
+                  payload: {
+                    projectId: project.id,
+                    stage: 'land_acquisition',
+                    cost: newCost
+                  }
+                });
+              }
+            }
+            break;
+            
+          case 'environmental_decision':
+            if (isPositive) {
+              // Pozytywne wydarzenia dla etapu decyzji środowiskowej
+              const positiveEvents = [
+                {
+                  title: 'Pozytywna opinia środowiskowa',
+                  description: `Projekt ${project.name} otrzymał pozytywną opinię od lokalnych organizacji ekologicznych.`,
+                  progressBonus: Math.floor(Math.random() * 12) + 8, // +8-20%
+                  reputationChange: 3
+                },
+                {
+                  title: 'Przyspieszona procedura środowiskowa',
+                  description: `Urząd zastosował tryb przyspieszony dla projektu ${project.name} ze względu na jego znaczenie.`,
+                  progressBonus: Math.floor(Math.random() * 15) + 10, // +10-25%
+                },
+                {
+                  title: 'Korzystne warunki środowiskowe',
+                  description: `Analizy wykazały wyjątkowo korzystne warunki środowiskowe dla projektu ${project.name}.`,
+                  progressBonus: Math.floor(Math.random() * 10) + 5, // +5-15%
+                  costModifier: 0.9
+                }
+              ];
+              
+              const selectedEvent = positiveEvents[Math.floor(Math.random() * positiveEvents.length)];
+              eventData = { ...eventData, ...selectedEvent };
+              
+              // Aplikujemy efekty
+              if (selectedEvent.progressBonus) {
+                playerDispatch({
+                  type: 'UPDATE_PROJECT',
+                  payload: {
+                    id: project.id,
+                    changes: {
+                      progress: Math.min(100, project.progress + selectedEvent.progressBonus)
+                    }
+                  }
+                });
+              }
+              
+              if (selectedEvent.costModifier && project.etapCosts) {
+                const newCost = Math.round(project.etapCosts.environmental_decision * selectedEvent.costModifier);
+                playerDispatch({
+                  type: 'UPDATE_PROJECT_STAGE_COST',
+                  payload: {
+                    projectId: project.id,
+                    stage: 'environmental_decision',
+                    cost: newCost
+                  }
+                });
+              }
+              
+              if (selectedEvent.reputationChange) {
+                playerDispatch({
+                  type: 'UPDATE_REPUTATION',
+                  payload: {
+                    change: selectedEvent.reputationChange,
+                    reason: selectedEvent.title,
+                    turn: gameState.turn
+                  }
+                });
+              }
+            } else {
+              // Negatywne wydarzenia dla etapu decyzji środowiskowej
+              const negativeEvents = [
+                {
+                  title: 'Protesty ekologów',
+                  description: `Lokalne organizacje ekologiczne protestują przeciwko projektowi ${project.name}.`,
+                  progressPenalty: Math.floor(Math.random() * 12) + 8, // -8-20%
+                  reputationChange: -2
+                },
+                {
+                  title: 'Dodatkowe badania środowiskowe',
+                  description: `Urząd wymaga przeprowadzenia dodatkowych badań dla projektu ${project.name}.`,
+                  progressPenalty: Math.floor(Math.random() * 8) + 5, // -5-13%
+                  costModifier: 1.15
+                },
+                {
+                  title: 'Odkrycie chronionego gatunku',
+                  description: `Na terenie projektu ${project.name} odkryto chroniony gatunek, co komplikuje proces.`,
+                  progressPenalty: Math.floor(Math.random() * 15) + 10, // -10-25%
+                  costModifier: 1.2,
+                  reputationChange: -1
+                }
+              ];
+              
+              const selectedEvent = negativeEvents[Math.floor(Math.random() * negativeEvents.length)];
+              eventData = { ...eventData, ...selectedEvent };
+              
+              // Aplikujemy efekty
+              if (selectedEvent.progressPenalty) {
+                playerDispatch({
+                  type: 'UPDATE_PROJECT',
+                  payload: {
+                    id: project.id,
+                    changes: {
+                      progress: Math.max(0, project.progress - selectedEvent.progressPenalty)
+                    }
+                  }
+                });
+              }
+              
+              if (selectedEvent.costModifier && project.etapCosts) {
+                const newCost = Math.round(project.etapCosts.environmental_decision * selectedEvent.costModifier);
+                playerDispatch({
+                  type: 'UPDATE_PROJECT_STAGE_COST',
+                  payload: {
+                    projectId: project.id,
+                    stage: 'environmental_decision',
+                    cost: newCost
+                  }
+                });
+              }
+              
+              if (selectedEvent.reputationChange) {
+                playerDispatch({
+                  type: 'UPDATE_REPUTATION',
+                  payload: {
+                    change: selectedEvent.reputationChange,
+                    reason: selectedEvent.title,
+                    turn: gameState.turn
+                  }
+                });
+              }
+            }
+            break;
+            
+          case 'zoning_conditions':
+          case 'grid_connection':
+            // Podobne implementacje dla pozostałych etapów...
+            if (isPositive) {
+              const positiveEvents = [
+                {
+                  title: 'Przychylne władze lokalne',
+                  description: `Władze lokalne wspierają projekt ${project.name}, co przyspiesza proces wydawania pozwoleń.`,
+                  progressBonus: Math.floor(Math.random() * 15) + 10, // +10-25%
+                  reputationChange: 2
+                },
+                {
+                  title: 'Szybkie uzgodnienia sieciowe',
+                  description: `Operator przyłączy przyznał priorytet dla projektu ${project.name}.`,
+                  progressBonus: Math.floor(Math.random() * 20) + 15, // +15-35%
+                },
+                {
+                  title: 'Wsparcie techniczne',
+                  description: `Eksperci branżowi zaoferowali wsparcie dla projektu ${project.name}.`,
+                  progressBonus: Math.floor(Math.random() * 10) + 8, // +8-18%
+                  costModifier: 0.85
+                }
+              ];
+              
+              const selectedEvent = positiveEvents[Math.floor(Math.random() * positiveEvents.length)];
+              eventData = { ...eventData, ...selectedEvent };
+              
+              // Aplikujemy efekty
+              if (selectedEvent.progressBonus) {
+                playerDispatch({
+                  type: 'UPDATE_PROJECT',
+                  payload: {
+                    id: project.id,
+                    changes: {
+                      progress: Math.min(100, project.progress + selectedEvent.progressBonus)
+                    }
+                  }
+                });
+              }
+              
+              if (selectedEvent.costModifier && project.etapCosts) {
+                const stage = project.status;
+                const newCost = Math.round(project.etapCosts[stage] * selectedEvent.costModifier);
+                playerDispatch({
+                  type: 'UPDATE_PROJECT_STAGE_COST',
+                  payload: {
+                    projectId: project.id,
+                    stage: stage,
+                    cost: newCost
+                  }
+                });
+              }
+              
+              if (selectedEvent.reputationChange) {
+                playerDispatch({
+                  type: 'UPDATE_REPUTATION',
+                  payload: {
+                    change: selectedEvent.reputationChange,
+                    reason: selectedEvent.title,
+                    turn: gameState.turn
+                  }
+                });
+              }
+            } else {
+              const negativeEvents = [
+                {
+                  title: 'Opóźnienia administracyjne',
+                  description: `Biurokracja spowalnia proces wydawania pozwoleń dla projektu ${project.name}.`,
+                  progressPenalty: Math.floor(Math.random() * 15) + 10, // -10-25%
+                },
+                {
+                  title: 'Problemy z przyłączeniem',
+                  description: `Operator sieci zgłasza trudności z przyłączeniem projektu ${project.name}.`,
+                  progressPenalty: Math.floor(Math.random() * 20) + 15, // -15-35%
+                  costModifier: 1.2
+                },
+                {
+                  title: 'Protesty mieszkańców',
+                  description: `Lokalna społeczność protestuje przeciwko projektowi ${project.name}.`,
+                  progressPenalty: Math.floor(Math.random() * 25) + 15, // -15-40%
+                  reputationChange: -3
+                }
+              ];
+              
+              const selectedEvent = negativeEvents[Math.floor(Math.random() * negativeEvents.length)];
+              eventData = { ...eventData, ...selectedEvent };
+              
+              // Aplikujemy efekty
+              if (selectedEvent.progressPenalty) {
+                playerDispatch({
+                  type: 'UPDATE_PROJECT',
+                  payload: {
+                    id: project.id,
+                    changes: {
+                      progress: Math.max(0, project.progress - selectedEvent.progressPenalty)
+                    }
+                  }
+                });
+              }
+              
+              if (selectedEvent.costModifier && project.etapCosts) {
+                const stage = project.status;
+                const newCost = Math.round(project.etapCosts[stage] * selectedEvent.costModifier);
+                playerDispatch({
+                  type: 'UPDATE_PROJECT_STAGE_COST',
+                  payload: {
+                    projectId: project.id,
+                    stage: stage,
+                    cost: newCost
+                  }
+                });
+              }
+              
+              if (selectedEvent.reputationChange) {
+                playerDispatch({
+                  type: 'UPDATE_REPUTATION',
+                  payload: {
+                    change: selectedEvent.reputationChange,
+                    reason: selectedEvent.title,
+                    turn: gameState.turn
+                  }
+                });
+              }
+            }
+            break;
+            
+          default:
+            return; // Dla ready_to_build nie generujemy wydarzeń
+        }
+        
+        // Dodajemy wydarzenie do systemu
+        playerDispatch({
+          type: 'ADD_EVENT',
+          payload: eventData
+        });
+        
+        // Pokazujemy powiadomienie o nowym wydarzeniu
+        gameDispatch({
+          type: 'SET_NOTIFICATION',
+          payload: {
+            text: `${eventData.title}: ${eventData.description}`,
+            type: eventData.severity === 'positive' ? 'success' : 'warning'
+          }
+        });
+        
+        // Dodajemy wydarzenie do historii projektu
+        playerDispatch({
+          type: 'ADD_PROJECT_EVENT',
+          payload: {
+            projectId: project.id,
+            event: {
+              turn: gameState.turn,
+              text: `${eventData.title}: ${eventData.description}`
+            }
+          }
+        });
+      }
+    });
+  }, []);
+
   return {
     updateProjects,
     generateStaffEvents,
     generateEconomicEvents,
+    generateProjectEvents,
     getReputationCostMultiplier,
     getReputationTimeMultiplier,
     getIllegalActionMultiplier,

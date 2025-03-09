@@ -7,27 +7,27 @@ export const technologies = {
     color: "yellow",
     stages: {
       land_acquisition: {
-        time: { min: 5, max: 9 }, // tury
+        time: { min: 1, max: 3 }, // tury - znacznie krótszy czas
         costPerMW: { min: 10000, max: 10000 }, // zł/MWp/rok - koszt dzierżawy gruntu
         description: "Pozyskiwanie gruntów pod instalacje fotowoltaiczne",
       },
       environmental_decision: {
-        time: { min: 8, max: 15 },
+        time: { min: 4, max: 8 }, // tury - skrócony czas
         costPerMW: { min: 15000, max: 25000 }, // Koszt due diligence i analiz wstępnych
         description: "Uzyskanie decyzji środowiskowej dla instalacji PV",
       },
       zoning_conditions: {
-        time: { min: 6, max: 12 },
+        time: { min: 2, max: 4 }, // tury - skrócony czas
         costPerMW: { min: 30000, max: 40000 }, // Koszt warunków zabudowy
         description: "Uzyskanie warunków zabudowy dla instalacji PV",
       },
       grid_connection: {
-        time: { min: 10, max: 18 },
+        time: { min: 3, max: 6 }, // tury - skrócony czas
         costPerMW: { min: 120000, max: 150000 }, // Koszt warunków przyłączenia
         description: "Przyłączenie do sieci instalacji fotowoltaicznej",
       },
       construction: {
-        time: { min: 12, max: 20 },
+        time: { min: 6, max: 10 }, // tury - skrócony czas
         costPerMW: { min: 2500000, max: 3500000 },
         description: "Budowa instalacji fotowoltaicznej",
       },
@@ -163,144 +163,244 @@ export const technologies = {
   },
 };
 
+// Definicje technologii hybrydowych
+export const hybridTechnologies = {
+  "PV+BESS": {
+    name: "Fotowoltaika z Magazynem",
+    shortName: "PV+BESS",
+    icon: "SunBattery",
+    color: "teal",
+    components: ["PV", "BESS"],
+    // Współczynniki określające, jak komponenty hybrydowe wpływają na parametry projektu
+    componentWeights: {
+      PV: 0.7,  // 70% parametrów projektu pochodzi z PV
+      BESS: 0.3  // 30% parametrów projektu pochodzi z BESS
+    }
+  },
+  "WF+BESS": {
+    name: "Wiatrowa z Magazynem",
+    shortName: "WF+BESS",
+    icon: "WindBattery",
+    color: "indigo",
+    components: ["WF", "BESS"],
+    componentWeights: {
+      WF: 0.7,
+      BESS: 0.3
+    }
+  },
+  "PV+WF": {
+    name: "Fotowoltaika i Wiatrowa",
+    shortName: "PV+WF",
+    icon: "SunWind",
+    color: "green",
+    components: ["PV", "WF"],
+    componentWeights: {
+      PV: 0.5,
+      WF: 0.5
+    }
+  },
+  "PV+WF+BESS": {
+    name: "Kompleksowy System OZE",
+    shortName: "PV+WF+BESS",
+    icon: "SunWindBattery",
+    color: "purple",
+    components: ["PV", "WF", "BESS"],
+    componentWeights: {
+      PV: 0.4,
+      WF: 0.4,
+      BESS: 0.2
+    }
+  }
+};
+
 // Funkcja do generowania projektu odpowiedniego typu
 export const createProject = (technology, regionId, options = {}) => {
-  const tech = technologies[technology];
-  if (!tech) return null;
+  // Sprawdzamy, czy to jest projekt hybrydowy
+  const isHybrid = technology.includes("+");
+  
+  let tech;
+  let hybridTech;
+  let components = [];
+  
+  if (isHybrid) {
+    // Pobieramy definicję technologii hybrydowej
+    hybridTech = hybridTechnologies[technology];
+    if (!hybridTech) return null;
+    
+    // Pobieramy komponenty hybrydowe
+    components = hybridTech.components.map(comp => technologies[comp]);
+    if (components.some(c => !c)) return null; // Jeśli brakuje jakiegoś komponentu
+  } else {
+    // Standardowy projekt - jedna technologia
+    tech = technologies[technology];
+    if (!tech) return null;
+  }
 
   const projectSize = options.size || Math.floor(30 + Math.random() * 50); // domyślnie 30-80 ha
 
   // Różne przeliczniki w zależności od technologii
   let projectPower;
-  switch (technology) {
-    case "PV":
+  
+  if (isHybrid) {
+    // Dla projektów hybrydowych obliczamy moc jako średnią ważoną mocy komponentów
+    if (technology === "PV+BESS") {
+      // PV z magazynem ma specjalny przelicznik
+      projectPower = Math.floor(projectSize * (1.2 + Math.random() * 0.6)); // 1.2-1.8 MW/ha
+    } else if (technology === "WF+BESS") {
+      // Farma wiatrowa z magazynem
+      projectPower = Math.floor(projectSize * (0.6 + Math.random() * 0.3)); // 0.6-0.9 MW/ha
+    } else if (technology === "PV+WF") {
+      // PV i farma wiatrowa
+      projectPower = Math.floor(projectSize * (0.8 + Math.random() * 0.4)); // 0.8-1.2 MW/ha
+    } else if (technology === "PV+WF+BESS") {
+      // Kompleksowy system
       projectPower = Math.floor(projectSize * (1.0 + Math.random() * 0.5)); // 1.0-1.5 MW/ha
-      break;
-    case "WF":
-      projectPower = Math.floor(projectSize * (0.5 + Math.random() * 0.3)); // 0.5-0.8 MW/ha
-      break;
-    case "BESS":
-      projectPower = Math.floor(projectSize * (2.0 + Math.random() * 1.0)); // 2.0-3.0 MW/ha
-      break;
-    default:
-      projectPower = Math.floor(projectSize * (1.2 + Math.random() * 0.8)); // 1.2-2.0 MW/ha
+    } else {
+      // Domyślny przypadek
+      projectPower = Math.floor(projectSize * (1.0 + Math.random() * 0.5)); // 1.0-1.5 MW/ha
+    }
+  } else {
+    // Dla standardowych projektów - istniejące przeliczniki
+    switch (technology) {
+      case "PV":
+        projectPower = Math.floor(projectSize * (1.0 + Math.random() * 0.5)); // 1.0-1.5 MW/ha
+        break;
+      case "WF":
+        projectPower = Math.floor(projectSize * (0.5 + Math.random() * 0.3)); // 0.5-0.8 MW/ha
+        break;
+      case "BESS":
+        projectPower = Math.floor(projectSize * (2.0 + Math.random() * 1.0)); // 2.0-3.0 MW/ha
+        break;
+      default:
+        projectPower = Math.floor(projectSize * (1.2 + Math.random() * 0.8)); // 1.2-2.0 MW/ha
+    }
   }
 
   // Generowanie nowego projektu
   const projectId = Date.now() + Math.floor(Math.random() * 1000);
-
+  const projectName = isHybrid ? 
+    `${hybridTech.shortName} ${regionId.slice(0, 3).toUpperCase()}${Math.floor(Math.random() * 100)}` :
+    `${tech.shortName} ${regionId.slice(0, 3).toUpperCase()}${Math.floor(Math.random() * 100)}`;
+  
+  // Konstruujemy obiekt etapów i kosztów
+  let stages = {};
+  let marketPrices = {};
+  
+  if (isHybrid) {
+    // Dla projektów hybrydowych, łączymy etapy i koszty poszczególnych technologii
+    stages = hybridTech.components.reduce((acc, comp) => {
+      const compTech = technologies[comp];
+      const weight = hybridTech.componentWeights[comp];
+      
+      // Dla każdego etapu, ważymy parametry komponentu
+      Object.entries(compTech.stages).forEach(([stage, params]) => {
+        if (!acc[stage]) {
+          acc[stage] = {
+            time: { min: 0, max: 0 },
+            costPerMW: { min: 0, max: 0 },
+            description: `${hybridTech.name}: ${params.description}`
+          };
+        }
+        
+        // Ważymy czasy i koszty
+        acc[stage].time.min += params.time.min * weight;
+        acc[stage].time.max += params.time.max * weight;
+        acc[stage].costPerMW.min += params.costPerMW.min * weight;
+        acc[stage].costPerMW.max += params.costPerMW.max * weight;
+      });
+      
+      return acc;
+    }, {});
+    
+    // Obliczamy ceny rynkowe jako średnią ważoną cen komponentów
+    const baseMarketPrice = hybridTech.components.reduce((acc, comp) => {
+      const compTech = technologies[comp];
+      const weight = hybridTech.componentWeights[comp];
+      
+      Object.entries(compTech.marketPrices).forEach(([stage, price]) => {
+        if (!acc[stage]) {
+          acc[stage] = { min: 0, max: 0, currency: price.currency };
+        }
+        
+        acc[stage].min += price.min * weight;
+        acc[stage].max += price.max * weight;
+      });
+      
+      return acc;
+    }, {});
+    
+    // Dodajemy 10-20% premium za hybrydę (większa efektywność)
+    const hybridPremium = 1.1 + Math.random() * 0.1; // 1.1-1.2
+    
+    Object.keys(baseMarketPrice).forEach(stage => {
+      marketPrices[stage] = {
+        min: Math.round(baseMarketPrice[stage].min * hybridPremium),
+        max: Math.round(baseMarketPrice[stage].max * hybridPremium),
+        currency: baseMarketPrice[stage].currency
+      };
+    });
+  } else {
+    // Dla standardowych projektów - istniejące etapy i ceny
+    stages = tech.stages;
+    marketPrices = tech.marketPrices;
+  }
+  
+  // Obliczamy koszty etapów projektu
+  const etapCosts = {};
+  Object.entries(stages).forEach(([stage, params]) => {
+    // Losowy koszt w zakresie min-max dla danego etapu
+    const minCost = params.costPerMW.min;
+    const maxCost = params.costPerMW.max;
+    const costPerMW = minCost + Math.random() * (maxCost - minCost);
+    
+    // Całkowity koszt dla etapu
+    etapCosts[stage] = Math.round(costPerMW * projectPower);
+  });
+  
+  // Konstruujemy pełny obiekt projektu
   return {
     id: projectId,
-    name: `${tech.shortName}-${regionId
-      .substring(0, 3)
-      .toUpperCase()}${projectId.toString().slice(-4)}`,
-    technology,
+    name: projectName,
+    technology: technology,
+    isHybrid: isHybrid,
+    hybridComponents: isHybrid ? hybridTech.components : [technology],
     region: regionId,
-    size: projectSize, // Wielkość w hektarach
-    power: projectPower, // Moc w MW
+    size: projectSize,
+    power: projectPower,
     status: "land_acquisition",
     statusIndex: 0,
-    startedOn: options.turn || 1,
-    assignedScout: null,
-    assignedDeveloper: null,
-    landCost: 0,
     progress: 0,
-    // Czasy trwania etapów w turach
-    etapTime: {
-      land_acquisition:
-        tech.stages.land_acquisition.time.min +
-        Math.floor(
-          Math.random() *
-            (tech.stages.land_acquisition.time.max -
-              tech.stages.land_acquisition.time.min)
-        ),
-      environmental_decision:
-        tech.stages.environmental_decision.time.min +
-        Math.floor(
-          Math.random() *
-            (tech.stages.environmental_decision.time.max -
-              tech.stages.environmental_decision.time.min)
-        ),
-      zoning_conditions:
-        tech.stages.zoning_conditions.time.min +
-        Math.floor(
-          Math.random() *
-            (tech.stages.zoning_conditions.time.max -
-              tech.stages.zoning_conditions.time.min)
-        ),
-      grid_connection:
-        tech.stages.grid_connection.time.min +
-        Math.floor(
-          Math.random() *
-            (tech.stages.grid_connection.time.max -
-              tech.stages.grid_connection.time.min)
-        ),
-      construction:
-        tech.stages.construction.time.min +
-        Math.floor(
-          Math.random() *
-            (tech.stages.construction.time.max -
-              tech.stages.construction.time.min)
-        ),
-    },
-    // Koszt każdego etapu
-    etapCosts: {
-      land_acquisition:
-        Math.floor(
-          tech.stages.land_acquisition.costPerMW.min +
-            Math.random() *
-              (tech.stages.land_acquisition.costPerMW.max -
-                tech.stages.land_acquisition.costPerMW.min)
-        ) * projectPower,
-      environmental_decision:
-        Math.floor(
-          tech.stages.environmental_decision.costPerMW.min +
-            Math.random() *
-              (tech.stages.environmental_decision.costPerMW.max -
-                tech.stages.environmental_decision.costPerMW.min)
-        ) * projectPower,
-      zoning_conditions:
-        Math.floor(
-          tech.stages.zoning_conditions.costPerMW.min +
-            Math.random() *
-              (tech.stages.zoning_conditions.costPerMW.max -
-                tech.stages.zoning_conditions.costPerMW.min)
-        ) * projectPower,
-      grid_connection:
-        Math.floor(
-          tech.stages.grid_connection.costPerMW.min +
-            Math.random() *
-              (tech.stages.grid_connection.costPerMW.max -
-                tech.stages.grid_connection.costPerMW.min)
-        ) * projectPower,
-      construction:
-        Math.floor(
-          tech.stages.construction.costPerMW.min +
-            Math.random() *
-              (tech.stages.construction.costPerMW.max -
-                tech.stages.construction.costPerMW.min)
-        ) * projectPower,
-    },
-    etapPaid: {
-      land_acquisition: false,
-      environmental_decision: false,
-      zoning_conditions: false,
-      grid_connection: false,
-      construction: false,
-    },
-    // Ryzyka projektu
-    risks: {
-      protest: 0,
-      corruption: 0,
-      delay: 0,
-      specific: tech.specificRisks.map((risk) => ({
-        ...risk,
-        triggered: false,
-      })),
-    },
-    events: [], // Historia wydarzeń projektu
-    totalCost: 0, // Całkowity koszt projektu
-    estimatedProfit: 0, // Szacowany zysk
-    parallelProcesses: {}, // Procesy równoległe
+    turn: options.turn || 1,
+    etapCosts: etapCosts,
+    marketValue: calculateMarketValue(technology, projectPower, "land_acquisition"),
+    totalCost: 0,
+    events: [],
+    assignedStaff: {},
+    specialRisks: isHybrid ? 
+      hybridTech.components.flatMap(comp => technologies[comp].specificRisks || []) :
+      tech.specificRisks || []
   };
 };
+
+// Funkcja pomocnicza do obliczania wartości rynkowej projektu
+function calculateMarketValue(technology, power, stage) {
+  const baseValuePerMW = {
+    PV: 150000,
+    WF: 200000,
+    BESS: 250000,
+    "PV+BESS": 180000,
+    "WF+BESS": 230000,
+    "PV+WF": 190000,
+    "PV+WF+BESS": 220000
+  }[technology] || a50000;
+  
+  const stageMultiplier = {
+    land_acquisition: 0.15,
+    environmental_decision: 0.35,
+    zoning_conditions: 0.55,
+    grid_connection: 0.85,
+    ready_to_build: 1.0
+  }[stage] || 0.1;
+  
+  return Math.round(power * baseValuePerMW * stageMultiplier);
+}

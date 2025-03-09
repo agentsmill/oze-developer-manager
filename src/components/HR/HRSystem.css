@@ -1,0 +1,373 @@
+.hr-system-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: #f5f5f7;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.hr-system-header {
+  padding: 1rem;
+  background-color: #2c3e50;
+  color: white;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.hr-system-header h2 {
+  margin: 0 0 1rem 0;
+  font-size: 1.5rem;
+}
+
+.hr-system-tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.hr-system-tabs button {
+  padding: 0.5rem 1rem;
+  background-color: #34495e;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.hr-system-tabs button:hover {
+  background-color: #4a6985;
+}
+
+.hr-system-tabs button.active {
+  background-color: #3498db;
+}
+
+.hr-system-content {
+  flex: 1;
+  padding: 1rem;
+  overflow: auto;
+}
+
+/* Widok pracowników */
+.hr-employees-view {
+  display: grid;
+  grid-template-columns: 350px 1fr;
+  gap: 1rem;
+  height: 100%;
+}
+
+/* Lista pracowników */
+.hr-employees-list {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.1);
+  overflow: auto;
+}
+
+.hr-employees-list-header {
+  padding: 0.75rem 1rem;
+  background-color: #f0f2f5;
+  border-bottom: 1px solid #e0e0e0;
+  font-weight: bold;
+}
+
+.hr-employees-list-filters {
+  padding: 0.5rem 1rem;
+  background-color: #f9f9f9;
+  border-bottom: 1px solid #e0e0e0;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.hr-employees-list-filters select {
+  padding: 0.25rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.hr-employee-item {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e0e0e0;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.hr-employee-item:hover {
+  background-color: #f5f5f5;
+}
+
+.hr-employee-item.selected {
+  background-color: #e1f0fa;
+  border-left: 3px solid #3498db;
+}
+
+.hr-employee-name {
+  font-weight: bold;
+  margin-bottom: 0.25rem;
+}
+
+.hr-employee-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+/* Szczegóły pracownika */
+.hr-employee-details {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+  height: 100%;
+  overflow: auto;
+}
+
+.hr-employee-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid #e0e0e0;
+  padding-bottom: 1rem;
+}
+
+.hr-employee-avatar {
+  width: 80px;
+  height: 80px;
+  background-color: #3498db;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 2rem;
+  margin-right: 1rem;
+}
+
+.hr-employee-title h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.5rem;
+}
+
+.hr-employee-job {
+  color: #666;
+  font-size: 1.1rem;
+}
+
+.hr-employee-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.hr-employee-actions button {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.hr-employee-actions .train-btn {
+  background-color: #2ecc71;
+  color: white;
+}
+
+.hr-employee-actions .fire-btn {
+  background-color: #e74c3c;
+  color: white;
+}
+
+.hr-employee-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+.hr-employee-section {
+  margin-bottom: 1.5rem;
+}
+
+.hr-employee-section h4 {
+  margin: 0 0 0.75rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e0e0e0;
+  color: #2c3e50;
+}
+
+.hr-stat-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.hr-stat-label {
+  color: #555;
+}
+
+.hr-stat-value {
+  font-weight: bold;
+}
+
+.hr-progress-bar {
+  height: 8px;
+  background-color: #ecf0f1;
+  border-radius: 4px;
+  margin-top: 0.25rem;
+  overflow: hidden;
+}
+
+.hr-progress-value {
+  height: 100%;
+  background-color: #3498db;
+}
+
+.hr-progress-value.high {
+  background-color: #2ecc71;
+}
+
+.hr-progress-value.medium {
+  background-color: #f39c12;
+}
+
+.hr-progress-value.low {
+  background-color: #e74c3c;
+}
+
+/* Historia pracownika */
+.hr-history-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+}
+
+.hr-history-item {
+  padding: 0.5rem;
+  border-bottom: 1px solid #e0e0e0;
+  font-size: 0.9rem;
+}
+
+.hr-history-item:last-child {
+  border-bottom: none;
+}
+
+.hr-history-date {
+  font-size: 0.8rem;
+  color: #777;
+  margin-bottom: 0.25rem;
+}
+
+/* Style dla centrum szkoleń */
+.training-center {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+}
+
+/* Style dla centrum zatrudnienia */
+.employment-center {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+}
+
+/* Style dla ulepszeń firmy */
+.company-upgrades {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+}
+
+.upgrades-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.upgrade-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.upgrade-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.upgrade-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.upgrade-title {
+  font-weight: bold;
+  font-size: 1.1rem;
+}
+
+.upgrade-level {
+  background-color: #3498db;
+  color: white;
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.upgrade-description {
+  margin-bottom: 1rem;
+  color: #555;
+  font-size: 0.9rem;
+}
+
+.upgrade-benefits {
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.upgrade-benefit {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.upgrade-benefit-icon {
+  color: #2ecc71;
+  margin-right: 0.5rem;
+}
+
+.upgrade-cost {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e0e0e0;
+}
+
+.upgrade-button {
+  background-color: #3498db;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.upgrade-button:hover {
+  background-color: #2980b9;
+}
+
+.upgrade-button:disabled {
+  background-color: #95a5a6;
+  cursor: not-allowed;
+} 

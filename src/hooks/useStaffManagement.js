@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePlayerContext } from '../store/PlayerContext';
 import { useGameContext } from '../store/GameContext';
-import { translateStaffType, translateStaffLevel } from '../utils/translators';
+import { translateStaffType, translateStaffLevel, translateStage } from '../utils/translators';
+import { useEventsContext } from '../store/EventsContext';
 
 /**
  * Hook do zarządzania kadrami
@@ -10,6 +11,7 @@ import { translateStaffType, translateStaffLevel } from '../utils/translators';
 const useStaffManagement = () => {
   const { state: playerState, dispatch: playerDispatch } = usePlayerContext();
   const { state: gameState, showNotification } = useGameContext();
+  const { dispatch: eventsDispatch } = useEventsContext();
   const [staffEvents, setStaffEvents] = useState([]);
 
   // Parametry dla różnych poziomów umiejętności
@@ -236,7 +238,6 @@ const useStaffManagement = () => {
         expires: gameState.turn + 5,
         staffId: staff.id,
         staffName: staff.name,
-        projectId: project.id
       }
     });
     
@@ -245,7 +246,7 @@ const useStaffManagement = () => {
   };
   
   /**
-   * Sprawdza, czy dany typ pracownika może być przypisany do projektu na danym etapie
+   * Sprawdza, czy dany typ pracownika może być przypisany do projektu w danym etapie
    * @param {string} staffType - Typ pracownika
    * @param {string} projectStage - Etap projektu
    * @returns {boolean} - Czy przypisanie jest możliwe
@@ -260,19 +261,22 @@ const useStaffManagement = () => {
     ];
     
     switch(staffType) {
-      case 'scout':
-      case 'scouts':
-        return stages.indexOf(projectStage) <= stages.indexOf("land_acquisition");
+      case 'lessor':
+      case 'lessors':
+        // Dzierżawcy nie są już przypisywani bezpośrednio do projektów, 
+        // ale do miski dzierżawy w powiecie
+        return false;
       case 'developer':
       case 'developers':
-        return true; // Developerzy mogą pracować na każdym etapie
+        // Developerzy są wymagani od etapu po dzierżawie
+        return stages.indexOf(projectStage) >= stages.indexOf("environmental_decision");
       case 'lawyer':
       case 'lawyers':
         return stages.indexOf(projectStage) >= stages.indexOf("environmental_decision") && 
                stages.indexOf(projectStage) <= stages.indexOf("grid_connection");
       case 'envSpecialist':
       case 'envSpecialists':
-        return stages.indexOf(projectStage) <= stages.indexOf("environmental_decision");
+        return stages.indexOf(projectStage) === stages.indexOf("environmental_decision");
       case 'lobbyist':
       case 'lobbyists':
         return stages.indexOf(projectStage) >= stages.indexOf("environmental_decision") && 
@@ -603,13 +607,16 @@ const useStaffManagement = () => {
   };
 
   /**
-   * Funkcja do aktualizacji doświadczenia pracownika
+   * Aktualizuje doświadczenie pracownika
    * @param {string} staffType - Typ pracownika
    * @param {string} staffId - ID pracownika
+   * @param {Object} projectData - Dane projektu (opcjonalne)
+   * @param {string} activityType - Typ aktywności (opcjonalne)
+   * @param {number} experienceGain - Dodatkowe punkty doświadczenia (opcjonalne)
    */
-  const updateStaffExperience = (staffType, staffId) => {
-    // Sprawdzamy czy pracownik istnieje
-    const staffList = playerState.staff[`${staffType}s`];
+  const updateStaffExperience = (staffType, staffId, projectData = null, activityType = null, experienceGain = 10) => {
+    const staffTypeKey = staffType.endsWith('s') ? staffType : `${staffType}s`;
+    const staffList = playerState.staff[staffTypeKey];
     if (!staffList) return;
     
     const staffIndex = staffList.findIndex(s => s.id === staffId);
@@ -617,39 +624,141 @@ const useStaffManagement = () => {
     
     const staff = staffList[staffIndex];
     
-    // Zwiększamy doświadczenie pracownika
-    const experienceIncrease = 1; // 1 punkt doświadczenia na turę
+    // Podstawowy wzrost doświadczenia
+    let baseExperience = experienceGain;
     
-    // Aktualizujemy pracownika
-    playerDispatch({
-      type: 'UPDATE_STAFF',
-      payload: {
-        staffType,
-        staffUpdate: {
-          id: staffId,
-          experienceIncrease
-        }
+    // Sprawdzamy, czy firma ma ulepszenie przyspieszające zdobywanie doświadczenia
+    const trainingProgramLevel = playerState.companyUpgrades?.training_program || 0;
+    
+    // Mnożniki w zależności od poziomu ulepszenia
+    const experienceMultipliers = [1, 1.1, 1.2, 1.35]; // 0, 1, 2, 3 poziom
+    
+    // Zwiększamy doświadczenie na podstawie ulepszenia
+    baseExperience *= experienceMultipliers[trainingProgramLevel];
+    
+    // Specjalne traktowanie dla developerów - zdobywanie doświadczenia w technologii
+    if (staffType === 'developer' || staffType === 'developers') {
+      if (projectData && projectData.technology) {
+        // Tworzymy lub aktualizujemy obiekt doświadczenia technologicznego
+        const technologyExperience = staff.technologyExperience || {};
+        const currentTechExp = technologyExperience[projectData.technology] || 0;
+        
+        // Doświadczenie w tej technologii rośnie szybciej
+        const techExpGain = Math.floor(baseExperience * 1.5);
+        
+        // Aktualizacja doświadczenia w konkretnej technologii
+        technologyExperience[projectData.technology] = currentTechExp + techExpGain;
+        
+        // Zapisujemy doświadczenie w historii
+        const historyEntry = {
+          data: new Date().toISOString(),
+          typ: 'doświadczenie',
+          opis: `Zdobył ${techExpGain} p.d. w technologii ${projectData.technology}`
+        };
+        
+        // Aktualizujemy pracownika
+        playerDispatch({
+          type: 'UPDATE_STAFF',
+          payload: {
+            staffType,
+            staffId,
+            changes: {
+              experience: staff.experience + baseExperience,
+              technologyExperience,
+              historia: [...(staff.historia || []), historyEntry]
+            }
+          }
+        });
+      } else {
+        // Standardowy wzrost doświadczenia jeśli nie ma danych o technologii
+        playerDispatch({
+          type: 'UPDATE_STAFF',
+          payload: {
+            staffType,
+            staffId,
+            changes: {
+              experience: staff.experience + baseExperience,
+              historia: [...(staff.historia || []), {
+                data: new Date().toISOString(),
+                typ: 'doświadczenie',
+                opis: `Zdobył ${baseExperience} p.d.`
+              }]
+            }
+          }
+        });
       }
-    });
-    
-    // Sprawdzamy czy pracownik może awansować
-    if (staff.experience + experienceIncrease >= 100 && staff.skill < 10) {
-      // Awansujemy pracownika
+    }
+    // Specjalne traktowanie dla dzierżawców (scouts) - zdobywanie doświadczenia za pozyskane grunty
+    else if (staffType === 'scout' || staffType === 'scouts') {
+      if (activityType === 'land_acquisition' && projectData) {
+        // Aktualizujemy liczbę pozyskanych gruntów i powierzchnię
+        const acquiredLands = (staff.acquiredLands || 0) + 1;
+        const acquiredArea = (staff.acquiredArea || 0) + (projectData.area || 0);
+        
+        // Specjalny bonus doświadczenia za pozyskanie gruntu
+        const landExpGain = Math.floor(baseExperience * 2);
+        
+        // Zapisujemy doświadczenie w historii
+        const historyEntry = {
+          data: new Date().toISOString(),
+          typ: 'pozyskanie_gruntu',
+          opis: `Pozyskał grunt o powierzchni ${projectData.area} ha w lokalizacji ${projectData.location || 'nieznana'}`
+        };
+        
+        // Aktualizujemy pracownika
+        playerDispatch({
+          type: 'UPDATE_STAFF',
+          payload: {
+            staffType,
+            staffId,
+            changes: {
+              experience: staff.experience + landExpGain,
+              acquiredLands,
+              acquiredArea,
+              historia: [...(staff.historia || []), historyEntry]
+            }
+          }
+        });
+      } else {
+        // Standardowy wzrost doświadczenia jeśli nie pozyskiwał gruntu
+        playerDispatch({
+          type: 'UPDATE_STAFF',
+          payload: {
+            staffType,
+            staffId,
+            changes: {
+              experience: staff.experience + baseExperience,
+              historia: [...(staff.historia || []), {
+                data: new Date().toISOString(),
+                typ: 'doświadczenie',
+                opis: `Zdobył ${baseExperience} p.d.`
+              }]
+            }
+          }
+        });
+      }
+    }
+    // Dla pozostałych typów pracowników - standardowy wzrost doświadczenia
+    else {
       playerDispatch({
         type: 'UPDATE_STAFF',
         payload: {
           staffType,
-          staffUpdate: {
-            id: staffId,
-            skillIncrease: 1,
-            experience: 0
+          staffId,
+          changes: {
+            experience: staff.experience + baseExperience,
+            historia: [...(staff.historia || []), {
+              data: new Date().toISOString(),
+              typ: 'doświadczenie',
+              opis: `Zdobył ${baseExperience} p.d.`
+            }]
           }
         }
       });
-      
-      // Wyświetlamy powiadomienie
-      showNotification(`${staff.name} zdobył nowy poziom umiejętności!`, 'success');
     }
+    
+    // Sprawdzamy, czy pracownik powinien awansować na wyższy poziom
+    checkForLevelUp(staffType, staffId);
   };
 
   /**
@@ -728,6 +837,125 @@ const useStaffManagement = () => {
     }
     
     return traits;
+  };
+
+  /**
+   * Sprawdza czy pracownik powinien awansować na wyższy poziom
+   * @param {string} staffType - Typ pracownika
+   * @param {string} staffId - ID pracownika
+   */
+  const checkForLevelUp = (staffType, staffId) => {
+    const staffTypeKey = staffType.endsWith('s') ? staffType : `${staffType}s`;
+    const staffList = playerState.staff[staffTypeKey];
+    if (!staffList) return;
+    
+    const staffIndex = staffList.findIndex(s => s.id === staffId);
+    if (staffIndex === -1) return;
+    
+    const staff = staffList[staffIndex];
+    
+    // Definiujemy progi doświadczenia dla poszczególnych poziomów
+    const experienceThresholds = {
+      junior: { min: 0, max: 3000, next: 'mid' },
+      mid: { min: 3001, max: 8000, next: 'senior' },
+      senior: { min: 8001, max: Infinity, next: null }
+    };
+    
+    // Aktualne poziomy
+    const currentLevel = staff.level;
+    const currentExp = staff.experience;
+    
+    // Sprawdzamy, czy pracownik przekroczył próg doświadczenia dla swojego poziomu
+    if (currentExp > experienceThresholds[currentLevel].max && experienceThresholds[currentLevel].next) {
+      const newLevel = experienceThresholds[currentLevel].next;
+      
+      // Aktualizujemy poziom pracownika
+      playerDispatch({
+        type: 'UPDATE_STAFF',
+        payload: {
+          staffType,
+          staffId,
+          changes: {
+            level: newLevel,
+            historia: [...(staff.historia || []), {
+              data: new Date().toISOString(),
+              typ: 'awans',
+              opis: `Awansował na pozycję ${translateStaffLevel(newLevel)}`
+            }]
+          }
+        }
+      });
+      
+      // Zwiększamy też umiejętności
+      if (newLevel === 'mid') {
+        // Przejście z junior na mid
+        const skillIncrease = Math.max(1, Math.floor(Math.random() * 3) + 1); // Wzrost o 1-3 punkty
+        
+        playerDispatch({
+          type: 'UPDATE_STAFF',
+          payload: {
+            staffType,
+            staffId,
+            changes: {
+              skill: Math.min(10, staff.skill + skillIncrease)
+            }
+          }
+        });
+        
+        showNotification(
+          `${staff.name} zdobył awans na poziom ${translateStaffLevel(newLevel)}! Umiejętności +${skillIncrease}`, 
+          'success'
+        );
+      } else if (newLevel === 'senior') {
+        // Przejście z mid na senior
+        const skillIncrease = Math.max(2, Math.floor(Math.random() * 3) + 2); // Wzrost o 2-4 punkty
+        
+        playerDispatch({
+          type: 'UPDATE_STAFF',
+          payload: {
+            staffType,
+            staffId,
+            changes: {
+              skill: Math.min(10, staff.skill + skillIncrease)
+            }
+          }
+        });
+        
+        showNotification(
+          `${staff.name} zdobył awans na poziom ${translateStaffLevel(newLevel)}! Umiejętności +${skillIncrease}`, 
+          'success'
+        );
+      }
+    }
+    
+    // Sprawdzamy czy umiejętności powinny wzrosnąć
+    const skillIncreaseThresholds = [1000, 2000, 4000, 6000, 8000, 10000, 12000, 14000, 16000];
+    const skillIncreasePoints = skillIncreaseThresholds.filter(threshold => staff.experience >= threshold);
+    
+    // Jeśli liczba progów przekroczonych jest większa niż obecne umiejętności, zwiększamy umiejętności
+    if (skillIncreasePoints.length > staff.skill - 1 && staff.skill < 10) {
+      const newSkill = Math.min(10, skillIncreasePoints.length + 1);
+      
+      if (newSkill > staff.skill) {
+        playerDispatch({
+          type: 'UPDATE_STAFF',
+          payload: {
+            staffType,
+            staffId,
+            changes: {
+              skill: newSkill,
+              historia: [...(staff.historia || []), {
+                data: new Date().toISOString(),
+                typ: 'rozwój',
+                opis: `Zwiększył umiejętności do poziomu ${newSkill}/10`
+              }]
+            }
+          }
+        });
+        
+        showNotification(`${staff.name} zwiększył swoje umiejętności do poziomu ${newSkill}/10!`, 'success');
+      }
+    }
   };
 
   return {

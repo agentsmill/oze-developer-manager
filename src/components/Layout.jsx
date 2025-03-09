@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import {
   Map,
   Circle,
@@ -11,6 +11,7 @@ import {
   Calendar,
   Clock,
   ChevronRight,
+  Play
 } from "lucide-react";
 import { useGameContext } from "../store/GameContext";
 import { usePlayerContext } from "../store/PlayerContext";
@@ -152,6 +153,15 @@ const Layout = ({ children }) => {
             currentScreen={state.currentScreen}
             onClick={() =>
               dispatch({ type: "SET_SCREEN", payload: "market" })
+            }
+          />
+          <NavButton
+            icon={<Users className="h-4 w-4" />}
+            screenName="hr"
+            label="Zarządzanie Zasobami Ludzkimi"
+            currentScreen={state.currentScreen}
+            onClick={() =>
+              dispatch({ type: "SET_SCREEN", payload: "hr" })
             }
           />
         </div>

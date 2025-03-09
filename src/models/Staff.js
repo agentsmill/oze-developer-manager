@@ -35,7 +35,7 @@ export const NEGATIVE_TRAITS = [
 
 // Lista specjalizacji pracowników
 export const SPECIALIZATIONS = {
-  scout: ['Małe projekty', 'Duże projekty', 'Fotowoltaika', 'Farmy wiatrowe', 'Tereny poprzemysłowe', 'Obszary chronione'],
+  lessor: ['Fotowoltaika (PV)', 'Farmy wiatrowe (WF)', 'Magazyny energii (BESS)', 'Hybrydowe PV+BESS', 'Hybrydowe FW+BESS', 'Hybrydowe PV+WF', 'Hybrydowe PV+WF+BESS'],
   developer: ['Fotowoltaika', 'Farmy wiatrowe', 'Magazyny energii', 'Hybrydowe', 'Offshore', 'Repowering'],
   lawyer: ['Decyzje środowiskowe', 'Warunki zabudowy', 'Pozwolenia na budowę', 'Umowy MPZP', 'Prawo energetyczne'],
   envSpecialist: ['Oceny oddziaływania', 'Natura 2000', 'Ochrona gatunkowa', 'Kompensacje', 'Obszary chronione'],
@@ -69,11 +69,11 @@ export const EXPERIENCE_LEVELS = {
 
 // Podstawowe wynagrodzenia dla różnych typów pracowników
 export const BASE_SALARIES = {
-  scout: 2500,      // 2.5k zł
-  developer: 3000,  // 3k zł
-  lawyer: 0,        // Jednorazowa opłata
-  envSpecialist: 0, // Jednorazowa opłata
-  lobbyist: 5000    // 5k zł
+  lessor: 4500,
+  developer: 6000,
+  lawyer: 7000,
+  envSpecialist: 5500,
+  lobbyist: 6500
 };
 
 // Koszt jednorazowego wynajęcia specjalistów
@@ -129,7 +129,7 @@ export const generateStaffTraits = () => {
 
 /**
  * Tworzy nowego pracownika z losowymi danymi
- * @param {string} type - Typ pracownika (scout, developer, lawyer, envSpecialist, lobbyist)
+ * @param {string} type - Typ pracownika (lessor, developer, lawyer, envSpecialist, lobbyist)
  * @param {string} level - Poziom (junior, mid, senior)
  * @returns {Object} Obiekt pracownika
  */
@@ -313,6 +313,29 @@ export const generateStaffEvent = (staff) => {
     uniqueId: `${selectedEvent.id}_${Date.now()}`,
     date: new Date().toISOString()
   };
+};
+
+// Tłumaczenie typów pracowników
+export const translateStaffType = (type, accusative = false) => {
+  if (accusative) {
+    switch(type) {
+      case 'lessor': return 'dzierżawcę';
+      case 'developer': return 'developera';
+      case 'lawyer': return 'prawnika';
+      case 'envSpecialist': return 'specjalistę ds. środowiska';
+      case 'lobbyist': return 'lobbystę';
+      default: return type;
+    }
+  } else {
+    switch(type) {
+      case 'lessor': return 'dzierżawca';
+      case 'developer': return 'developer';
+      case 'lawyer': return 'prawnik';
+      case 'envSpecialist': return 'specjalista ds. środowiska';
+      case 'lobbyist': return 'lobbysta';
+      default: return type;
+    }
+  }
 };
 
 // Nazwa stała dla eksportu domyślnego

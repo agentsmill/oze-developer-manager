@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { usePlayerContext } from "../../store/PlayerContext";
 import { useGameContext } from "../../store/GameContext";
-import { useEventsContext } from "../../store/EventContext";
+import { useEventsContext } from "../../store/EventsContext";
 import { translateStage } from "../../utils/translators";
 
 const MarketplaceView = () => {
@@ -226,6 +226,21 @@ const MarketplaceView = () => {
     if (project.county) {
       // Tu można dodać akcję do zaktualizowania danych powiatu
     }
+    
+    // Dodajemy wydarzenie sprzedaży projektu
+    eventsDispatch({
+      type: 'ADD_EVENT',
+      payload: {
+        id: Date.now() + Math.random(),
+        type: 'project_event',
+        title: `Sprzedaż projektu: ${project.name}`,
+        description: `Projekt ${project.name} został sprzedany za ${price.toLocaleString()} zł.`,
+        severity: 'positive',
+        turn: gameState.turn,
+        expires: gameState.turn + 5,
+        projectId: project.id
+      }
+    });
     
     showNotification(`Sprzedano projekt "${project.name}" za ${price.toLocaleString()} PLN na giełdzie`, 'success');
   };

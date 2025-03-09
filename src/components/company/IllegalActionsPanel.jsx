@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { usePlayerContext } from '../../store/PlayerContext';
 import { useGameContext } from '../../store/GameContext';
-import { useEventsContext } from '../../store/EventContext';
+import { useEventsContext } from '../../store/EventsContext';
 import Button from '../ui/Button';
 import { AlertTriangle, Eye, FileX, Banknote, ShieldAlert, UserX, Network, Lock } from 'lucide-react';
 

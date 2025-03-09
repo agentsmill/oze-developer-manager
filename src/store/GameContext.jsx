@@ -66,11 +66,13 @@ const initialState = {
   globalEvents: {
     currentEvents: [],
     eventProbabilities: {
-      economic: 0.1,  // 10% szans na wydarzenie ekonomiczne każdego dnia
-      political: 0.05, // 5% szans na wydarzenie polityczne
-      social: 0.03,    // 3% szans na wydarzenie społeczne
-      environmental: 0.07, // 7% szans na wydarzenie środowiskowe
-      technological: 0.04 // 4% szans na wydarzenie technologiczne
+      economic: 0.25,  // Zwiększona szansa na wydarzenia ekonomiczne
+      political: 0.20, // Zwiększona szansa na wydarzenia polityczne
+      social: 0.25,    // Zwiększona szansa na wydarzenia społeczne
+      environmental: 0.20, // Zwiększona szansa na wydarzenia środowiskowe
+      technological: 0.20, // Zwiększona szansa na wydarzenia technologiczne
+      local: 0.30,     // Wysoka szansa na wydarzenia lokalne
+      project: 0.25    // Wysoka szansa na wydarzenia projektowe
     }
   }
 };
@@ -227,10 +229,20 @@ export const GameProvider = ({ children }) => {
   // Funkcja do przejścia do następnego dnia
   const nextDay = () => {
     // Generujemy nowe wydarzenia dla bieżącego dnia
-    const newEvents = generateEvents(
-      state.gameDate, 
-      state.globalEvents.eventProbabilities
-    );
+    // Zmieniamy mechanizm generowania wydarzeń, aby generować je częściej
+    // Obecnie generujemy co dzień, ale teraz zrobimy to szybciej
+    
+    // Losujemy liczbę wydarzeń do wygenerowania (1-3)
+    const numEventsToGenerate = Math.floor(Math.random() * 3) + 1;
+    
+    let newEvents = [];
+    for (let i = 0; i < numEventsToGenerate; i++) {
+      const generatedEvents = generateEvents(
+        state.gameDate, 
+        state.globalEvents.eventProbabilities
+      );
+      newEvents = [...newEvents, ...generatedEvents];
+    }
     
     // Dodajemy nowe wydarzenia
     if (newEvents && newEvents.length > 0) {
@@ -239,13 +251,22 @@ export const GameProvider = ({ children }) => {
         payload: newEvents 
       });
       
-      // Pokazujemy powiadomienia o nowych wydarzeniach
-      newEvents.forEach(event => {
+      // Pokazujemy powiadomienia o nowych wydarzeniach, maksymalnie 3
+      const eventsToNotify = newEvents.slice(0, 3);
+      eventsToNotify.forEach(event => {
         showNotification(
           `Nowe wydarzenie: ${event.name} - ${event.description.substring(0, 100)}${event.description.length > 100 ? '...' : ''}`,
           "event"
         );
       });
+      
+      // Jeśli jest więcej niż 3 wydarzenia, pokazujemy zbiorcze powiadomienie
+      if (newEvents.length > 3) {
+        showNotification(
+          `Łącznie wygenerowano ${newEvents.length} nowych wydarzeń. Sprawdź zakładkę Wydarzenia.`,
+          "info"
+        );
+      }
     }
     
     // Wykonujemy standardową akcję przejścia do następnego dnia

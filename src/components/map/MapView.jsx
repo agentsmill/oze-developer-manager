@@ -3,11 +3,10 @@ import { useRegionsContext } from "../../store/RegionContext";
 import { useGameContext } from "../../store/GameContext";
 import { useProjects } from "../../hooks/useProjects";
 import { useCountyContext } from "../../store/CountyContext";
-import RegionItem from "./RegionItem";
 import RegionInfo from "./RegionInfo";
 import CountyView from "./CountyView";
 import CountyInfo from "./CountyInfo";
-import Card from "../ui/Card";
+import PolandMap from "./PolandMap";
 import { getColorByValue } from "../../utils/colors";
 
 const MapView = () => {
@@ -46,16 +45,11 @@ const MapView = () => {
       <div className="flex-1 bg-blue-50 p-4 overflow-auto">
         <div className="w-full h-full">
           {/* Mapa Polski z województwami */}
-          <div className="w-full min-h-full grid grid-cols-4 auto-rows-min gap-4">
-            {regions.map((region) => (
-              <RegionItem
-                key={region.id}
-                region={region}
-                isSelected={gameState.selectedRegion === region.id}
-                onSelect={handleSelectRegion}
-              />
-            ))}
-          </div>
+          <PolandMap 
+            regions={regions}
+            selectedRegionId={gameState.selectedRegion}
+            onSelectRegion={handleSelectRegion}
+          />
         </div>
       </div>
 
@@ -83,17 +77,40 @@ const MapView = () => {
             )}
           </div>
         ) : (
-          <Card title="Mapa Polski">
-            <p>Wybierz województwo, aby zobaczyć szczegóły.</p>
-            <p className="mt-2 text-sm text-gray-600">
-              W nowej wersji aplikacji możesz teraz zarządzać projektami OZE na poziomie powiatów.
-              Każdy powiat ma unikalne parametry, które wpływają na opłacalność i trudność realizacji projektów.
-            </p>
-            <p className="mt-2 text-sm text-gray-600">
-              Twoim celem jest osiągnięcie 25 GW mocy w projektach Ready-to-Build
-              lub zgromadzenie 10 miliardów złotych.
-            </p>
-          </Card>
+          <div className="p-4">
+            <h2 className="text-xl font-bold mb-4">Mapa Polski</h2>
+            <p className="mb-4">Wybierz województwo, aby zobaczyć szczegółowe informacje i rozpocząć projekty.</p>
+            
+            <div className="bg-blue-50 p-4 rounded mb-4">
+              <h3 className="font-bold mb-2">Legenda mapy</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex items-center">
+                  <div className="w-4 h-4 bg-green-300 mr-2 border border-gray-300"></div>
+                  <span className="text-sm">Dobre warunki dla OZE</span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-4 h-4 bg-yellow-300 mr-2 border border-gray-300"></div>
+                  <span className="text-sm">Średnie warunki dla OZE</span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-4 h-4 bg-red-300 mr-2 border border-gray-300"></div>
+                  <span className="text-sm">Słabe warunki dla OZE</span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-4 h-4 relative mr-2 border border-gray-300">
+                    <div className="absolute -top-1 -right-1 h-2 w-2 bg-red-500 rounded-full"></div>
+                  </div>
+                  <span className="text-sm">Aktywne zdarzenia</span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-4 h-4 relative mr-2 flex items-center justify-center">
+                    <span className="text-xs text-green-800 font-bold">O</span>
+                  </div>
+                  <span className="text-sm">Obszar OPRO</span>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

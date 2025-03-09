@@ -42,7 +42,7 @@ export const getStageDescription = (stage) => {
 export const translateStaffType = (type, accusative = false) => {
   if (accusative) {
     switch(type) {
-      case 'scout': return 'pozyskiwacza';
+      case 'lessor': return 'dzierżawcę';
       case 'developer': return 'developera';
       case 'lawyer': return 'prawnika';
       case 'envSpecialist': return 'specjalistę ds. środowiska';
@@ -51,7 +51,7 @@ export const translateStaffType = (type, accusative = false) => {
     }
   } else {
     switch(type) {
-      case 'scout': return 'pozyskiwacz';
+      case 'lessor': return 'dzierżawca';
       case 'developer': return 'developer';
       case 'lawyer': return 'prawnik';
       case 'envSpecialist': return 'specjalista ds. środowiska';

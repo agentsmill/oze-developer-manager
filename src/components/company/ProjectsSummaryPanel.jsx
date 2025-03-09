@@ -3,6 +3,7 @@ import { usePlayerContext } from '../../store/PlayerContext';
 import { useGameContext } from '../../store/GameContext';
 import { translateStage } from '../../utils/translators';
 import { useProjects } from '../../hooks/useProjects';
+import ProjectCard from '../projects/ProjectCard';
 import {
   ChevronDown,
   ChevronUp,
@@ -30,7 +31,7 @@ import {
 const ProjectsSummaryPanel = () => {
   const { state: playerState, dispatch: playerDispatch } = usePlayerContext();
   const { state: gameState, showNotification } = useGameContext();
-  const { projects, accelerateProject, sendProjectToMarket, applyIllegalMethod } = useProjects();
+  const { projects, accelerateProject, sendProjectToMarket, applyIllegalMethod, advanceProject } = useProjects();
   
   const [activeAccordion, setActiveAccordion] = useState(null);
   const [filter, setFilter] = useState('all'); // all, pv, wf, development, rtb
@@ -234,6 +235,51 @@ const ProjectsSummaryPanel = () => {
     );
   };
   
+  // Obsługa przyspieszenia projektu
+  const handleAccelerateProject = (projectId) => {
+    const project = playerState.projects.find(p => p.id === projectId);
+    if (!project) return;
+    
+    // Obliczanie sugerowanej kwoty przyspieszenia
+    let suggestedAmount = 0;
+    
+    switch(project.status) {
+      case "land_acquisition":
+        suggestedAmount = Math.round(5000 * project.size);
+        break;
+      case "environmental_decision":
+        suggestedAmount = Math.max(50000, 10000 * project.power);
+        break;
+      case "zoning_conditions":
+        suggestedAmount = Math.max(30000, 7000 * project.power);
+        break;
+      case "grid_connection":
+        suggestedAmount = Math.max(80000, 15000 * project.power);
+        break;
+    }
+    
+    // Użytkownik może zdecydować o innej kwocie
+    const userAmount = window.prompt(
+      `Podaj kwotę przyspieszenia projektu (sugerowana: ${suggestedAmount.toLocaleString()} PLN):`,
+      suggestedAmount
+    );
+    
+    if (userAmount === null) return; // Użytkownik anulował
+    
+    const amount = parseInt(userAmount.replace(/\D/g, ''), 10);
+    if (isNaN(amount) || amount <= 0) {
+      showNotification('Nieprawidłowa kwota', 'error');
+      return;
+    }
+    
+    // Wywołanie funkcji przyspieszenia
+    const success = accelerateProject(projectId, amount);
+    
+    if (success) {
+      showNotification(`Przyspieszono projekt za ${amount.toLocaleString()} PLN`, 'success');
+    }
+  };
+  
   return (
     <div className="bg-white rounded-lg shadow-md p-4">
       <h2 className="text-xl font-semibold mb-4 flex items-center">
@@ -312,102 +358,13 @@ const ProjectsSummaryPanel = () => {
       {sortedProjects.length > 0 ? (
         <div className="space-y-3">
           {sortedProjects.map((project) => (
-            <div key={project.id} className="border rounded-lg overflow-hidden">
-              {/* Nagłówek projektu */}
-              <div 
-                className="bg-gray-50 p-3 flex items-center justify-between cursor-pointer"
-                onClick={() => setActiveAccordion(activeAccordion === project.id ? null : project.id)}
-              >
-                <div className="flex items-center space-x-3">
-                  {getTechnologyIcon(project.technology)}
-                  <span className="font-medium">{project.name}</span>
-                  <span className="text-sm text-gray-500">{project.power} MW</span>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <div className="text-sm font-medium">
-                    {translateStage(project.status)}
-                  </div>
-                  {activeAccordion === project.id ? (
-                    <ChevronUp className="h-4 w-4" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4" />
-                  )}
-                </div>
-              </div>
-              
-              {/* Pasek postępu zawsze widoczny */}
-              <div className="px-3 py-2 bg-white">
-                {renderProgressBar(project)}
-              </div>
-              
-              {/* Szczegóły projektu (rozwijane) */}
-              {activeAccordion === project.id && (
-                <div className="p-3 bg-white border-t">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <h4 className="text-sm font-medium flex items-center">
-                        <MapPin className="h-4 w-4 mr-1 text-gray-600" />
-                        Lokalizacja
-                      </h4>
-                      <p className="text-sm mt-1">
-                        {project.regionId || "Nie określono"}, 
-                        {project.countyId ? ` pow. ${project.countyId}` : ""}
-                      </p>
-                      
-                      <h4 className="text-sm font-medium flex items-center mt-3">
-                        <BarChart2 className="h-4 w-4 mr-1 text-gray-600" />
-                        Parametry
-                      </h4>
-                      <p className="text-sm mt-1">
-                        Moc: {project.power} MW<br />
-                        {project.area ? `Powierzchnia: ${project.area} ha` : ""}
-                      </p>
-                    </div>
-                    
-                    <div>
-                      <h4 className="text-sm font-medium flex items-center">
-                        <Clock className="h-4 w-4 mr-1 text-gray-600" />
-                        Status i postęp
-                      </h4>
-                      <p className="text-sm mt-1">
-                        Etap: {translateStage(project.status)}<br />
-                        Postęp w etapie: {project.progress || 0}%<br />
-                        {project.startDate && `Start: ${new Date(project.startDate).toLocaleDateString()}`}
-                      </p>
-                      
-                      <h4 className="text-sm font-medium flex items-center mt-3">
-                        <Users className="h-4 w-4 mr-1 text-gray-600" />
-                        Zespół
-                      </h4>
-                      <p className="text-sm mt-1">
-                        {project.assignedStaff && Object.keys(project.assignedStaff).length > 0 ? (
-                          <>
-                            Przydzielonych pracowników: {Object.keys(project.assignedStaff).length}
-                          </>
-                        ) : (
-                          "Brak przydzielonych pracowników"
-                        )}
-                      </p>
-                    </div>
-                    
-                    <div>
-                      <h4 className="text-sm font-medium flex items-center">
-                        <DollarSign className="h-4 w-4 mr-1 text-gray-600" />
-                        Finanse
-                      </h4>
-                      <p className="text-sm mt-1">
-                        Koszt całkowity: {(project.totalCost || 0).toLocaleString()} zł<br />
-                        Wydano: {(project.spentCost || 0).toLocaleString()} zł<br />
-                        Szacowana wartość: {(project.power * 150000 * (project.status === 'ready_to_build' ? 1 : 0.5)).toLocaleString()} zł
-                      </p>
-                      
-                      {/* Przyciski akcji */}
-                      {renderActionButton(project)}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <ProjectCard 
+              key={project.id}
+              project={project}
+              onAdvance={() => advanceProject(project.id)}
+              onAccelerate={handleAccelerateProject}
+              onApplyIllegalMethod={(method) => applyIllegalMethod(project.id, method)}
+            />
           ))}
         </div>
       ) : (

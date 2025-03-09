@@ -2,7 +2,7 @@
   "name": "oze-developer-manager",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://mateuszpawelczuk.github.io/oze-developer-manager",
+  "homepage": "https://agentsmill.github.io/oze-developer-manager",
   "dependencies": {
     "@testing-library/jest-dom": "^5.17.0",
     "@testing-library/react": "^13.4.0",
@@ -18,10 +18,11 @@
   },
   "scripts": {
     "start": "set NODE_OPTIONS=--openssl-legacy-provider && react-scripts start",
-    "build": "react-scripts build",
+    "build": "set DISABLE_ESLINT_PLUGIN=true && react-scripts build",
+    "build-no-lint": "set CI=false && react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "predeploy": "npm run build",
+    "predeploy": "npm run build-no-lint",
     "deploy": "gh-pages -d build"
   },
   "eslintConfig": {

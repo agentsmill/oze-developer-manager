@@ -44,6 +44,7 @@ const initialState = {
     lastAuditResult: null, // Wynik ostatniego audytu
   },
   loans: [],
+  companyUpgrades: {},
 };
 
 // Reducer dla akcji gracza
@@ -484,6 +485,15 @@ function playerReducer(state, action) {
         economicMetrics: {
           ...state.economicMetrics,
           ...action.payload
+        }
+      };
+    case "PURCHASE_COMPANY_UPGRADE":
+      return {
+        ...state,
+        cash: state.cash - action.payload.cost,
+        companyUpgrades: {
+          ...(state.companyUpgrades || {}),
+          [action.payload.upgradeId]: action.payload.level
         }
       };
     default:

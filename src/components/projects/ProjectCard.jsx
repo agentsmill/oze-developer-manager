@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { Sun, Wind, Battery, MapPin, Calendar, Clock, AlertTriangle, DollarSign, Users, Zap, ShieldOff } from 'lucide-react';
 import ProgressBar from '../ui/ProgressBar';
 import StatusBadge from '../ui/StatusBadge';
-import { translateStage } from '../../utils/translators';
+import { translateStage, getStageDescription } from '../../utils/translators';
 import { usePlayerContext } from '../../store/PlayerContext';
 import { useGameContext } from '../../store/GameContext';
 import '../../styles/indicators.css';
+import { Button } from '../ui/Button';
+import { formatCurrency } from '../../utils/formatters';
 
 /**
  * Komponent karty projektu
@@ -16,6 +18,7 @@ import '../../styles/indicators.css';
  * @param {function} props.onDetails - Funkcja otwierająca szczegóły
  * @param {function} props.onSell - Funkcja obsługująca sprzedaż
  * @param {function} props.onApplyIllegalMethod - Funkcja obsługująca użycie nielegalnych metod
+ * @param {function} props.onAccelerate - Funkcja obsługująca przyspieszanie projektu
  * @returns {JSX.Element} Element JSX
  */
 const ProjectCard = ({ 
@@ -24,7 +27,8 @@ const ProjectCard = ({
   onAssignStaff, 
   onDetails, 
   onSell,
-  onApplyIllegalMethod
+  onApplyIllegalMethod,
+  onAccelerate
 }) => {
   const { state: playerState } = usePlayerContext();
   const { showNotification } = useGameContext();
@@ -159,6 +163,13 @@ const ProjectCard = ({
     
     // Ukrycie menu po wybraniu metody
     setShowIllegalActions(false);
+  };
+  
+  // Funkcja do przyspieszania projektu
+  const handleAccelerate = () => {
+    if (typeof onAccelerate === 'function') {
+      onAccelerate(project.id);
+    }
   };
   
   return (
@@ -338,6 +349,26 @@ const ProjectCard = ({
             )}
           </div>
         </div>
+      </div>
+      
+      {/* Przyciski akcji */}
+      <div className="px-4 py-3 bg-gray-50 flex justify-between items-center">
+        <div>
+          <span className="text-xs text-gray-500">Status: </span>
+          <span className={`text-sm font-medium ${project.useIllegalMethods ? 'text-amber-600' : 'text-blue-600'}`}>
+            {translateStage(project.status)}
+          </span>
+        </div>
+        
+        {project.status !== 'ready_to_build' && (
+          <Button 
+            variant="secondary" 
+            size="sm" 
+            onClick={handleAccelerate}
+          >
+            Przyspiesz projekt
+          </Button>
+        )}
       </div>
     </div>
   );
