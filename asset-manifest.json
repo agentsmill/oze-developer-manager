@@ -1,11 +1,12 @@
 {
   "files": {
-    "main.css": "/oze-developer-manager/static/css/main.10b30584.css",
-    "main.js": "/oze-developer-manager/static/js/main.cc6dff05.js",
+    "main.css": "/oze-developer-manager/static/css/main.e4685221.css",
+    "main.js": "/oze-developer-manager/static/js/main.8baf665b.js",
+    "static/media/wojewodztwa-medium.geojson": "/oze-developer-manager/static/media/wojewodztwa-medium.7ec707073aa9c8711fa4.geojson",
     "index.html": "/oze-developer-manager/index.html"
   },
   "entrypoints": [
-    "static/css/main.10b30584.css",
-    "static/js/main.cc6dff05.js"
+    "static/css/main.e4685221.css",
+    "static/js/main.8baf665b.js"
   ]
 }
