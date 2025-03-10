@@ -1,11 +1,11 @@
 {
   "files": {
-    "main.css": "/oze-developer-manager/static/css/main.25228d23.css",
-    "main.js": "/oze-developer-manager/static/js/main.0a29a998.js",
+    "main.css": "/oze-developer-manager/static/css/main.d8fd9d90.css",
+    "main.js": "/oze-developer-manager/static/js/main.9b1bb2a2.js",
     "index.html": "/oze-developer-manager/index.html"
   },
   "entrypoints": [
-    "static/css/main.25228d23.css",
-    "static/js/main.0a29a998.js"
+    "static/css/main.d8fd9d90.css",
+    "static/js/main.9b1bb2a2.js"
   ]
 }
